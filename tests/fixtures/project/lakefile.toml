@@ -1,0 +1,26 @@
+name = "demo"
+srcDir = "src"
+defaultTargets = ["Proof", "Main"]
+moreLeanArgs = ["--tstack=400000"]
+
+[leanOptions]
+autoImplicit = false
+maxHeartbeats = 4000000
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "0df444a360eaa60ab8c11dca51a86af692955474"
+
+[[lean_lib]]
+name = "Proof"
+globs = ["Proof.+"]
+
+[[lean_lib]]
+name = "Extra"
+globs = ["Extra.*"]
+leanOptions = {synthInstance.maxHeartbeats = 400000}
+
+[[lean_lib]]
+name = "Main"
+roots = ["Statements", "Main"]
