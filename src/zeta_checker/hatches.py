@@ -81,6 +81,7 @@ _DECLNAME = re.compile(
     rf"\s+(?:(?:def|theorem|instance|inductive|structure|class|abbrev)\s+)?({IDENT})"
 )
 _NATIVE_SET = re.compile(r"\s*:=\s*true\b")
+_NAMED = re.compile(r"[ \t]*:")
 _IMPORT = re.compile(
     rf"^[ \t]*(?:(?:public|private)[ \t]+)?(?:meta[ \t]+)?import[ \t]+(?:all[ \t]+)?"
     rf"(Lean(?:\.{IDENT})?)(?![{ID_REST}.])",
@@ -142,6 +143,8 @@ def classify(text: str, m: re.Match) -> tuple[str, str, str, str] | None:
             return ("MVarId.admit", "unproven", "critical", full)
         if word in KEYWORDS or group == "meta":
             return None
+    if word in ("stop", "admit") and _NAMED.match(text, q):
+        return None
     if word == "skipKernelTC" and re.search(r"set_option\s+$", text[max(start - 40, 0) : start]):
         return None
     if word == "Process":
