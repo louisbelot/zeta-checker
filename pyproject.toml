@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zeta-checker"
+version = "0.1.0"
+description = "Mechanical, reproducible checks of claimed proofs of the Riemann Hypothesis: hashed downloads, safe archive extraction, PDF text, Lake configuration, a comment-aware escape-hatch scanner for Lean 4 and statement tracing against Mathlib."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Louis Belot" }]
+keywords = ["lean4", "mathlib", "riemann-hypothesis", "formal-verification", "proof-audit"]
+dependencies = [
+    "pypdf>=4",
+    "tomli>=2; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.scripts]
+zeta-checker = "zeta_checker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/louisbelot/zeta-checker"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zeta_checker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
