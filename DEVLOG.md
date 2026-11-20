@@ -65,6 +65,19 @@ imports don't count, and `public`, `meta` and `import all` from the module syste
 do), computes the cone of the statement modules and splits a scan's hits into inside
 and outside that cone.
 
+**Reading from the tarball.** The first full scan read the extracted files one by one
+and crawled: another job had all 16 cores busy, and on Windows every open of a small
+file waits for the antivirus. After 15 minutes it had used about a minute of CPU. The
+scanner, inventory, import graph and statement trace now take `(path, bytes)` pairs, and
+`--archive` feeds them straight from the hashed parts, 14 opens instead of 175,187. On
+the same loaded machine the whole scan took 1m56s, the inventory 19s. A test checks
+that archive mode and directory mode give identical reports.
+
+**A false positive.** The first real run flagged one `stop`. It was a structure field,
+`stop : κ n = tau`, which Lean accepts as a name. `stop` and `admit` followed by a colon
+now count as names (`(sorry : T)` still counts, since that is a type ascription), and
+the decoy file has a structure with both fields.
+
 All of it ran on the released files today. The outputs are in the local workspace and
 stay there until they have been read through.
 
