@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,12 +67,19 @@ def module_of(rel: str, src_dir: str = ".") -> str:
 
 
 def build(src: Path) -> Graph:
-    g = Graph()
     base = fs.long(src)
-    for path in fs.walk(src, suffix=".lean"):
-        data = path.read_bytes()
+    files = fs.walk(src, suffix=".lean")
+    return build_pairs((p.relative_to(base).as_posix(), p.read_bytes()) for p in files)
+
+
+def build_pairs(pairs: Iterable[tuple[str, bytes]], src_dir: str = ".") -> Graph:
+    g = Graph()
+    prefix = "" if src_dir in (".", "") else src_dir.strip("/") + "/"
+    for rel, data in pairs:
+        if not (rel.startswith(prefix) and rel.endswith(".lean")):
+            continue
         text = data.decode("utf-8", errors="replace")
-        mod = ".".join(path.relative_to(base).with_suffix("").parts)
+        mod = module_of(rel, src_dir)
         g.imports[mod] = _IMPORT.findall(mask(text).text)
         g.sizes[mod] = (count_lines(data), len(data))
         if LICENSE.search(text[:1000]):

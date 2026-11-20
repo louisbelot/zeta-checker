@@ -140,3 +140,12 @@ def test_paths_longer_than_max_path(tmp_path):
     assert archive.inventory(tmp_path / "out").files == 1
     report = hatches.scan(tmp_path / "out")
     assert [(h.file, h.rule) for h in report.hits] == [(deep, "sorry")]
+
+
+def test_inventory_from_the_stream_matches_disk(tmp_path):
+    paths = split(make_tar(CLEAN), tmp_path / "dl")
+    archive.extract(paths, tmp_path / "out", reserve=0)
+    disk = archive.inventory(tmp_path / "out/lean", depth=1)
+    streamed = archive.inventory_pairs(archive.read_members(paths, "lean"), depth=1)
+    assert disk == streamed
+    assert streamed.by_ext == {".toml": [1, 1, 11], ".lean": [2, 3, 49]}

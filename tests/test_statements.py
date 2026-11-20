@@ -107,8 +107,10 @@ def test_names_skip_bound_variables():
 
 def test_trace_finds_shadowing(fixtures):
     root = fixtures / "project"
-    files = hatches.relative(root)
-    declared, overrides = statements.trace(files, {"riemannZeta", "RiemannHypothesis"})
+    declared, overrides, n = statements.trace(
+        hatches.read(root), {"riemannZeta", "RiemannHypothesis"}
+    )
+    assert n == 7
     assert declared == [("src/Proof/Shadow.lean", 5, "def", "riemannZeta")]
     assert overrides == [
         ("src/Proof/Shadow.lean", 9, "notation", '"RiemannHypothesis"'),

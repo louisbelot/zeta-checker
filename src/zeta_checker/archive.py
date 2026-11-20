@@ -209,6 +209,15 @@ def extract(paths: list[Path], dest: Path, *, reserve: int = 2 << 30) -> Listing
     return found
 
 
+def read_members(paths: list[Path], under: str = "", suffix: str = ""):
+    prefix = under.strip("/") + "/" if under.strip("/") else ""
+    with stream(paths) as f, tarfile.open(fileobj=f, mode="r|*") as tf:
+        for m in tf:
+            name = m.name[2:] if m.name.startswith("./") else m.name
+            if m.isfile() and name.startswith(prefix) and name.endswith(suffix):
+                yield name[len(prefix) :], tf.extractfile(m).read()
+
+
 def count_lines(data: bytes) -> int:
     return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
 
@@ -224,14 +233,18 @@ class Inventory:
 
 
 def inventory(root: Path, depth: int = 2, top: int = 10) -> Inventory:
+    base = fs.long(root)
+    pairs = ((p.relative_to(base).as_posix(), p.read_bytes()) for p in fs.walk(root))
+    return inventory_pairs(pairs, depth, top)
+
+
+def inventory_pairs(pairs, depth: int = 2, top: int = 10) -> Inventory:
     inv = Inventory()
     sizes = []
-    base = fs.long(root)
-    for path in fs.walk(root):
-        rel = path.relative_to(base).as_posix()
-        data = path.read_bytes()
+    for rel, data in pairs:
         n = count_lines(data)
-        ext = path.suffix.lower() or "(none)"
+        name = rel.rsplit("/", 1)[-1]
+        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.lstrip(".") else "(none)"
         key = "/".join(rel.split("/")[:depth]) if rel.count("/") >= depth else rel
         for table, k in ((inv.by_ext, ext), (inv.by_dir, key)):
             row = table.setdefault(k, [0, 0, 0])

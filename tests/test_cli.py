@@ -60,3 +60,24 @@ def test_imports_command_splits_hatches(fixtures, tmp_path, capsys):
     body = json.loads(out.read_text(encoding="utf-8"))
     assert body["hatches"]["critical sorry"] == [2, 2]
     assert body["hatches"]["low notation"] == [1, 0]
+
+
+def test_archive_mode_matches_directory(fixtures, tmp_path, capsys):
+    project = fixtures / "project"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        tf.add(project, arcname="lean")
+    (tmp_path / "lean.tar.gz.part01").write_bytes(buf.getvalue())
+    stem = str(tmp_path / "lean.tar.gz")
+    outs = []
+    for extra in ([], ["--archive", stem, "--under", "lean"]):
+        out = tmp_path / f"scan{len(outs)}.json"
+        assert main(["scan", str(project), "--json", str(out), *extra]) == 0
+        body = json.loads(out.read_text(encoding="utf-8"))
+        outs.append((body["files"], body["lines"], body["hits"]))
+    assert outs[0] == outs[1]
+    capsys.readouterr()
+    assert main(["imports", str(project), "--archive", stem, "--under", "lean"]) == 0
+    assert "import cone of Statements, Main: 3 modules" in capsys.readouterr().out
+    assert main(["statements", str(project), "--archive", stem, "--under", "lean"]) == 0
+    assert "names traced through 7 files" in capsys.readouterr().out

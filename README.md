@@ -56,6 +56,11 @@ zeta-checker statements <lean-project>  top-level statements traced to their def
 zeta-checker imports <lean-project>     import graph and the cone of the statement modules
 ```
 
+`inventory`, `scan`, `statements` and `imports` also take `--archive STEM --under DIR`
+to read the `.lean` files straight out of the hashed tarball instead of the extracted
+copy. On Windows that matters: opening 175,000 small files one by one is slow when an
+antivirus checks each open, while the tar stream is 14 opens.
+
 `manifest.json` holds the URL, size, SHA-256 and the server's ETag and
 Last-Modified for each of the 16 files. A rerun of `fetch` fails if a local file no
 longer matches, and `fetch --upstream` flags a changed ETag or size on the server.

@@ -83,7 +83,11 @@ def cmd_extract(args) -> int:
 
 
 def cmd_inventory(args) -> int:
-    inv = archive.inventory(args.root, depth=args.depth)
+    if args.archive is None:
+        inv = archive.inventory(args.root, depth=args.depth)
+    else:
+        paths = archive.parts(args.archive.parent, args.archive.name)
+        inv = archive.inventory_pairs(archive.read_members(paths, args.under), args.depth)
     print(f"{inv.files} files, {inv.lines} lines, {inv.bytes} bytes under {args.root}")
     by = lambda t: sorted(t.items(), key=lambda kv: -kv[1][1])  # noqa: E731
     print(table([(k, *v) for k, v in by(inv.by_ext)], ["extension", "files", "lines", "bytes"]))
@@ -176,8 +180,17 @@ def cmd_config(args) -> int:
     return 0
 
 
+def sources(args):
+    if args.archive is None:
+        return hatches.read(args.root)
+    paths = archive.parts(args.archive.parent, args.archive.name)
+    pairs = archive.read_members(paths, args.under, ".lean")
+    return ((rel, data) for rel, data in pairs if not hatches.SKIP_DIRS & set(rel.split("/")[:-1]))
+
+
 def cmd_scan(args) -> int:
-    report = hatches.scan(args.root)
+    label = (args.archive or args.root).as_posix()
+    report = hatches.scan_pairs(label, sources(args))
     print(f"{report.files} files, {report.lines} lines, {report.bytes} bytes scanned")
     if report.bad_utf8:
         print(f"not valid UTF-8: {len(report.bad_utf8)}")
@@ -259,9 +272,8 @@ def cmd_statements(args) -> int:
         body["theorems"].append(entry)
         print()
     if args.trace:
-        files = hatches.relative(args.root)
-        declared, overrides = statements.trace(files, wanted)
-        print(f"names traced through {len(files)} files: {', '.join(sorted(wanted))}")
+        declared, overrides, n = statements.trace(sources(args), wanted)
+        print(f"names traced through {n} files: {', '.join(sorted(wanted))}")
         print(f"declarations with one of these names: {len(declared)}")
         for rel, line, kind, name in declared:
             print(f"  {rel}:{line}  {kind} {name}")
@@ -276,7 +288,7 @@ def cmd_statements(args) -> int:
 def cmd_imports(args) -> int:
     lk = lake.load(args.root)
     src_dir = lk.config.get("srcDir", ".")
-    g = imports.build(args.root / src_dir)
+    g = imports.build_pairs(sources(args), src_dir)
     roots = args.roots or _modules(lk, None)
     cone = g.cone(roots)
     packages = imports.package_roots(lk.manifest)
@@ -360,6 +372,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("root", type=Path)
     s.add_argument("--depth", type=int, default=2)
     s.add_argument("--json", type=Path)
+    s.add_argument("--archive", type=Path, help="read files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the tree")
     s.set_defaults(run=cmd_inventory)
 
     s = sub.add_parser("pdftext", help="page-numbered text and outline of PDFs")
@@ -384,6 +398,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", type=Path)
     s.add_argument("--show", type=int, default=5)
     s.add_argument("--risk", choices=hatches.RISKS, default="medium")
+    s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_scan)
 
     s = sub.add_parser("statements", help="top-level statements, traced to their definitions")
@@ -391,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--module", action="append")
     s.add_argument("--json", type=Path)
     s.add_argument("--no-trace", dest="trace", action="store_false")
+    s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_statements)
 
     s = sub.add_parser("imports", help="import graph and the cone of the statement modules")
@@ -398,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--roots", nargs="+")
     s.add_argument("--hatches", type=Path, help="scan JSON to split by cone")
     s.add_argument("--json", type=Path)
+    s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_imports)
 
     args = p.parse_args(argv)

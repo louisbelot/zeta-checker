@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import difflib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from zeta_checker.leanlex import ID_REST, IDENT, Lines, mask
 
@@ -326,15 +326,16 @@ _META_CMD = re.compile(
 )
 
 
-def trace(files: list[tuple[str, Path]], wanted: set[str]) -> tuple[list, list]:
+def trace(files: Iterable[tuple[str, bytes]], wanted: set[str]) -> tuple[list, list, int]:
     wanted = {w.rsplit(".", 1)[-1] for w in wanted}
     alt = "|".join(sorted(map(re.escape, wanted), key=len, reverse=True))
     rx_decl = re.compile(rf"(?:{'|'.join(KINDS)})[ \t]+(?:[^\s:(\[{{]*\.)?(?:{alt})(?![{ID_REST}])")
     rx_atom = re.compile(rf'"[^"\n]*(?<![{ID_REST}])(?:{alt})(?![{ID_REST}])[^"\n]*"')
     rx_quote = re.compile(rf"`\(\s*(?:{alt})(?![{ID_REST}])")
-    declared, overrides = [], []
-    for rel, path in files:
-        src = path.read_text(encoding="utf-8", errors="replace")
+    declared, overrides, count = [], [], 0
+    for rel, data in files:
+        count += 1
+        src = data.decode("utf-8", errors="replace")
         if not (rx_decl.search(src) or rx_atom.search(src) or rx_quote.search(src)):
             continue
         text = mask(src).text
@@ -349,4 +350,4 @@ def trace(files: list[tuple[str, Path]], wanted: set[str]) -> tuple[list, list]:
             hit = rx_atom.search(seg) or rx_quote.search(seg)
             if hit:
                 overrides.append((rel, lines.line(m.start(1)), m.group(1), squash(hit.group())))
-    return declared, overrides
+    return declared, overrides, count

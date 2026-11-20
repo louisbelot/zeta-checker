@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -200,6 +201,11 @@ def relative(root: Path, files: list[Path] | None = None) -> list[tuple[str, Pat
     return [(p.relative_to(base).as_posix(), p) for p in paths]
 
 
+def read(root: Path, files: list[Path] | None = None) -> Iterator[tuple[str, bytes]]:
+    for rel, path in relative(root, files):
+        yield rel, path.read_bytes()
+
+
 @dataclass
 class Report:
     root: str
@@ -225,16 +231,19 @@ class Report:
 
 
 def scan(root: Path, files: list[Path] | None = None) -> Report:
-    pairs = relative(root, files)
-    hits, bad, lines, size = [], [], 0, 0
-    for rel, path in pairs:
-        data = path.read_bytes()
+    return scan_pairs(root.as_posix(), read(root, files))
+
+
+def scan_pairs(label: str, pairs: Iterable[tuple[str, bytes]]) -> Report:
+    hits, bad, count, lines, size = [], [], 0, 0, 0
+    for rel, data in pairs:
         try:
             src = data.decode("utf-8")
         except UnicodeDecodeError:
             bad.append(rel)
             src = data.decode("utf-8", errors="replace")
+        count += 1
         size += len(data)
         lines += src.count("\n") + (1 if src and not src.endswith("\n") else 0)
         hits.extend(scan_source(src, rel))
-    return Report(root.as_posix(), len(pairs), lines, size, bad, hits)
+    return Report(label, count, lines, size, bad, hits)
