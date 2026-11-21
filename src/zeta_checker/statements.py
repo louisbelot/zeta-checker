@@ -351,3 +351,23 @@ def trace(files: Iterable[tuple[str, bytes]], wanted: set[str]) -> tuple[list, l
             if hit:
                 overrides.append((rel, lines.line(m.start(1)), m.group(1), squash(hit.group())))
     return declared, overrides, count
+
+
+_CONTEXT = re.compile(
+    rf"^[ \t]*(?:@\[[^\]\n]*\][ \t]*)?(?:(?:local|scoped|private)[ \t]+)*"
+    rf"(instance|attribute|set_option|notation3|notation|infixl|infixr|infix|prefix|postfix"
+    rf"|macro_rules|macro|syntax|elab_rules|elab|open|export|variable|unif_hint|deriving)"
+    rf"(?![{ID_REST}])",
+    re.M,
+)
+
+
+def context(src: str) -> list[tuple[int, str, str]]:
+    text = mask(src).text
+    lines = Lines(src)
+    out = []
+    for m in _CONTEXT.finditer(text):
+        end = text.find("\n", m.start())
+        line = text[m.start() : end if end >= 0 else len(text)]
+        out.append((lines.line(m.start(1)), m.group(1), squash(line)))
+    return out

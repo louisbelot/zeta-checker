@@ -115,3 +115,14 @@ def test_trace_finds_shadowing(fixtures):
     assert overrides == [
         ("src/Proof/Shadow.lean", 9, "notation", '"RiemannHypothesis"'),
     ]
+
+
+def test_context_commands():
+    src = (
+        "import Mathlib\n-- instance : Foo := x\nopen Real in\n"
+        "@[simp] local instance : Coe A B := ⟨f⟩\n"
+        '/- notation "x" => y -/\nscoped notation "ζ" => riemannZeta\nset_option pp.all true\n'
+        'def x := "attribute [instance] foo"\n'
+    )
+    got = [(line, kind) for line, kind, _ in statements.context(src)]
+    assert got == [(3, "open"), (4, "instance"), (6, "notation"), (7, "set_option")]

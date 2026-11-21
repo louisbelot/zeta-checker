@@ -233,6 +233,12 @@ def cmd_statements(args) -> int:
         print(f"{m.file}")
         print(f"  imports: {', '.join(m.imports) or 'none'}")
         print(f"  open: {'; '.join(m.opens) or 'none'}")
+        own = [i for i in m.imports if (src / Path(*i.split("."))).with_suffix(".lean").exists()]
+        print(f"  project imports: {', '.join(own) or 'none'}")
+        ctx = statements.context((args.root / m.file).read_text(encoding="utf-8"))
+        print(f"  instance, attribute, option, notation or open commands: {len(ctx)}")
+        for line, _, text in ctx:
+            print(f"    {m.file}:{line}  {text[:120]}")
         for d in m.decls:
             proof = f" := {d.body[:160]}" if d.body else ""
             print(f"  {d.file}:{d.line}  {d.signature}{proof}")

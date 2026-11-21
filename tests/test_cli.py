@@ -24,7 +24,7 @@ def test_config_command(fixtures, capsys):
 def test_statements_command(fixtures, capsys):
     assert main(["statements", str(fixtures / "project")]) == 0
     text = capsys.readouterr().out
-    assert "imports: Mathlib" in text
+    assert "imports: Mathlib" in text and "project imports: none" in text
     assert "this is RiemannHypothesis itself" in text
     assert "statement unfolds ZetaZerosOnLine" in text
     assert "only here: `(`; only here: `: ℂ )`" in text
