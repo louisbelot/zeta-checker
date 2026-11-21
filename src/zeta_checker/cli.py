@@ -10,6 +10,7 @@ from pathlib import Path
 
 from zeta_checker import (
     archive,
+    declgraph,
     fetch,
     hatches,
     imports,
@@ -354,6 +355,72 @@ def cmd_statements(args) -> int:
     return 0
 
 
+def cmd_decls(args) -> int:
+    lk = lake.load(args.root)
+    src_dir = lk.config.get("srcDir", ".")
+    roots = set(args.roots or _modules(lk, None))
+    g = declgraph.build(lambda: sources(args))
+    edges = len(g.targets)
+    kinds = Counter(g.kinds)
+    anonymous = sum(1 for n in g.names if "<instance " in n)
+    print(f"{len(g)} declarations in {len(g.paths)} files, {edges} name references resolved")
+    print(table(kinds.most_common(), ["kind", "count"]))
+    print(f"anonymous instances (reachable only through instance search): {anonymous}")
+    print(f"full names declared more than once: {g.repeated}")
+    start = [v for v in range(len(g)) if imports.module_of(g.paths[g.files[v]], src_dir) in roots]
+    t = declgraph.dominator_tree(g, start)
+    reached = list(t.idom)
+    total_lines = sum(g.sizes)
+    hit_lines = sum(g.sizes[v] for v in reached)
+    print(f"\nroots: {len(start)} declarations in {', '.join(sorted(roots))}")
+    print(
+        f"reached by name from the roots: {len(reached)} declarations "
+        f"({100 * len(reached) / max(len(g), 1):.1f}%), {hit_lines} of {total_lines} lines"
+    )
+    every = declgraph.folders(g, range(len(g)), args.folder_depth)
+    hit = declgraph.folders(g, reached, args.folder_depth)
+    rows = [(k, n, hit[k], f"{100 * hit[k] / n:.0f}%") for k, n in every.most_common(args.top) if n]
+    print(table(rows, ["folder", "lines", "reached", "share"]))
+    floor = max(1, round(args.min_share * hit_lines))
+    tree = declgraph.spine(t, floor, args.depth)
+    print(f"\ndominator tree, subtrees of at least {floor} lines, depth {args.depth}:")
+    out_rows = []
+    for depth, v in tree:
+        print(f"{'  ' * depth}{g.names[v]}  [{t.count[v]} decls, {t.lines[v]} lines]  {g.where(v)}")
+        out_rows.append((depth, g.names[v], t.lines[v], f"({t.count[v]:,} decls)"))
+    if args.svg:
+        args.svg.parent.mkdir(parents=True, exist_ok=True)
+        title = f"Dominator tree from {', '.join(sorted(roots))} ({len(reached):,} declarations)"
+        args.svg.write_text(declgraph.svg(out_rows, title), encoding="utf-8")
+        print(f"wrote {args.svg}")
+    dump(
+        args.json,
+        {
+            "declarations": len(g),
+            "kinds": dict(kinds),
+            "references": edges,
+            "anonymous_instances": anonymous,
+            "repeated_names": g.repeated,
+            "roots": [g.names[v] for v in start],
+            "reached": len(reached),
+            "reached_lines": hit_lines,
+            "lines": total_lines,
+            "folders": {k: [n, hit[k]] for k, n in every.items()},
+            "tree": [
+                {
+                    "depth": depth,
+                    "name": g.names[v],
+                    "at": g.where(v),
+                    "decls": t.count[v],
+                    "lines": t.lines[v],
+                }
+                for depth, v in tree
+            ],
+        },
+    )
+    return 0
+
+
 def cmd_imports(args) -> int:
     lk = lake.load(args.root)
     src_dir = lk.config.get("srcDir", ".")
@@ -495,6 +562,19 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
     s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_imports)
+
+    s = sub.add_parser("decls", help="declaration graph from source and its dominator tree")
+    s.add_argument("root", type=Path)
+    s.add_argument("--roots", nargs="+", help="modules whose declarations start the walk")
+    s.add_argument("--min-share", type=float, default=0.01)
+    s.add_argument("--depth", type=int, default=8)
+    s.add_argument("--folder-depth", type=int, default=3)
+    s.add_argument("--top", type=int, default=25)
+    s.add_argument("--json", type=Path)
+    s.add_argument("--svg", type=Path)
+    s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the project")
+    s.set_defaults(run=cmd_decls)
 
     args = p.parse_args(argv)
     return args.run(args)

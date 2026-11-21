@@ -81,6 +81,21 @@ def test_archive_mode_matches_directory(fixtures, tmp_path, capsys):
     assert "import cone of Statements, Main: 3 modules" in capsys.readouterr().out
     assert main(["statements", str(project), "--archive", stem, "--under", "lean"]) == 0
     assert "names traced through 7 files" in capsys.readouterr().out
+    assert main(["decls", str(project), "--archive", stem, "--under", "lean"]) == 0
+    assert "reached by name from the roots: 7 declarations" in capsys.readouterr().out
+
+
+def test_decls_command(fixtures, tmp_path, capsys):
+    out, svg = tmp_path / "decls.json", tmp_path / "decls.svg"
+    args = ["decls", str(fixtures / "project"), "--json", str(out), "--svg", str(svg)]
+    assert main(args) == 0
+    text = capsys.readouterr().out
+    assert "11 declarations in 7 files" in text
+    assert "primitive  [2 decls, 7 lines]  src/Main.lean:8" in text
+    assert "  Proof.grh  [1 decls, 6 lines]  src/Proof/Core.lean:7" in text
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body["reached"] == 7 and body["folders"]["src/Extra.lean"] == [1, 0]
+    assert svg.read_text(encoding="utf-8").startswith("<svg")
 
 
 def test_manuscript_command(tmp_path, capsys):

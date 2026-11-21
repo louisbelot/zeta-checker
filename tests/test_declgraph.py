@@ -148,7 +148,7 @@ def test_dominators_match_brute_force():
         assert all(got[v] == -1 for v in range(1, n) if v not in want)
 
 
-def test_dominators_cooper_harvey_kennedy_figure():
+def test_dominators_irreducible_loop():
     succ = {5: [4, 3], 4: [1], 3: [2], 1: [2], 2: [1]}
     nodes = sorted(succ)
     ix = {v: i for i, v in enumerate(nodes)}
