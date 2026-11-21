@@ -302,7 +302,10 @@ def cmd_statements(args) -> int:
         for d in m.decls:
             proof = f" := {d.body[:160]}" if d.body else ""
             print(f"  {d.file}:{d.line}  {d.signature}{proof}")
-        body["modules"].append(asdict(m))
+        mod = asdict(m)
+        for d in mod["decls"]:
+            del d["raw"]
+        body["modules"].append(mod)
     print()
     for d in (d for m in parsed for d in m.decls if d.kind in ("theorem", "lemma", "example")):
         stmt = statements.statement(d)

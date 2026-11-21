@@ -74,6 +74,7 @@ class Decl:
     signature: str
     body: str
     namespace: str = ""
+    raw: str = field(default="", repr=False)
 
 
 @dataclass
@@ -144,6 +145,7 @@ def parse(src: str, rel: str) -> Module:
                 signature=squash(text[m.start(2) : end]),
                 body=squash(text[end + 2 : body_end]) if has_body else "",
                 namespace=ns,
+                raw=text[m.start(2) : body_end],
             )
         )
     return mod
