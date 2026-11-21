@@ -84,3 +84,75 @@ stay there until they have been read through.
 Next: a Linux CI job that builds only the cone of the main theorems with no secrets and
 prints `#print axioms`, after measuring what that build needs; then comparator with a
 challenge file holding Mathlib's statement.
+
+## 2026-11-20, second session
+
+Three new pieces: a declaration graph built from source, a triage pass for long
+manuscripts, and a check on the context the statement files are elaborated in.
+
+**Statement context.** `statements` now lists, for each root module, which of its
+imports are project modules and every `instance`, `attribute`, `set_option`, notation,
+macro, `open` or `variable` command in it (comments and strings masked first). A
+statement file that imports only Mathlib and has none of these can't have its meaning
+changed by a project instance, coercion or notation, because none of them is in scope
+when it is elaborated. Anything stated elsewhere in terms of it still has to match it in
+the kernel, so that is the file worth checking by hand.
+
+**Declaration graph.** `decls` turns every theorem, def, structure and instance into a
+node and every resolvable name in its signature or proof into an edge. Resolution
+follows Lean's lookup order: the declaration's namespaces from the innermost out (with
+the prefix of a dotted declaration name counted as a namespace, the way Lean opens it
+for the body), then the file's `open`s, then the prefix of a dotted name, so a field or
+constructor reference lands on its structure. Locally bound names are dropped before
+lookup: binders after `fun`, `∀`, `∃`, big operators, `intro`, `obtain`, `have`, `let`,
+`set`, `choose`, `with`, binder groups and match arms. Tactic names are dropped too.
+Without that, a root-level `def change` in some file collected an edge from every proof
+that used the `change` tactic, and a root-level `hm` from every proof with a hypothesis
+called `hm`. Both showed up in the first full run as tiny nodes at the top of the tree.
+References come from the whole declaration text, so `where` bodies and structure fields
+count too; the first version only read what followed `:=` and missed them.
+
+It takes two passes so memory stays flat: pass one records names, pass two resolves.
+Edges go in one flat `array('i')` with offsets (CSR), about 4 bytes each, so a graph
+with millions of edges fits in a few hundred megabytes of Python. Over the hashed
+archive the whole thing (two decompressions of 1.27 GB of tar, two parses of every
+file, resolution, dominators) takes about five and a half minutes on this machine
+(5m32s for the last run).
+
+The output is the dominator tree of the part reachable from the root modules, computed
+with Cooper, Harvey and Kennedy's iterative algorithm ("A Simple, Fast Dominance
+Algorithm", 2001): number nodes in DFS postorder, then repeat over reverse postorder,
+setting each node's idom to the intersection of its processed predecessors' idoms,
+walking two fingers up the current tree until they meet. It converges in a few passes on
+graphs like this and needs nothing but arrays. A node's subtree in that tree is the
+set of declarations that can only be reached through it, so weighting nodes by source
+lines shows where a proof funnels. The tests check it against a brute-force definition
+(d dominates v iff v is unreachable once d is removed) on 300 random graphs, and on
+an irreducible graph, a loop of two nodes entered from two sides, so that only the entry
+dominates either of them.
+
+Limits, also in the README: instances found by type class search, lemmas used by
+`simp` or tactics without being named, and generalized field notation are invisible
+from source. "Not reached by name" is a lower bound on what the proof uses, not a list
+of dead code.
+
+**Manuscript triage.** `manuscript` indexes numbered results from the page-numbered
+text, with titles that can contain one or two levels of parentheses. pdftotext's layout
+mode keeps indentation, which helped: headers are indented, while a line at the margin
+holding only `Theorem 3.1.2.4.` is a sentence that wrapped. The first version took
+those as headers and reported numbers declared three times; the rule now is that a
+margin line needs a title or text after the period. A reference such as
+`Lemma 2.2.2.1(3) provides` is never a header because the title has to follow a space.
+
+Cross-references are assigned to the result whose header precedes them, with citation
+brackets blanked out first so `[AB, Lemma 1]` doesn't count. It reports numbers
+referenced but never declared, numbers declared twice, gaps in each sequence (checked
+against equation labels, which share the counter), and markers in four groups:
+unresolved references (`??`), editorial phrases, deferrals and omitted proofs, plus
+footnotes that are notes to the author ("3Check this." in pdftotext's output, the
+footnote number glued to the text). The bibliography is parsed from the outline's
+Bibliography page and every bracket citation is matched against its keys.
+
+Next: the size of a sandbox build compared with Mathlib's, then the Linux CI job that
+builds the main theorems' cone with no secrets and prints `#print axioms`, and
+comparator with a challenge file holding Mathlib's statement.
