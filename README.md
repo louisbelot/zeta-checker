@@ -54,9 +54,11 @@ zeta-checker config <lean-project>      toolchain, pins, Lake options, lib cover
 zeta-checker scan <lean-project>        escape hatches, grouped by risk
 zeta-checker statements <lean-project>  top-level statements traced to their definitions
 zeta-checker imports <lean-project>     import graph and the cone of the statement modules
+zeta-checker decls <lean-project>       declaration graph and its dominator tree
+zeta-checker manuscript <txt>           numbered results, cross-references, markers, citations
 ```
 
-`inventory`, `scan`, `statements` and `imports` also take `--archive STEM --under DIR`
+`inventory`, `scan`, `statements`, `imports` and `decls` also take `--archive STEM --under DIR`
 to read the `.lean` files straight out of the hashed tarball instead of the extracted
 copy. On Windows that matters: opening 175,000 small files one by one is slow when an
 antivirus checks each open, while the tar stream is 14 opens.
@@ -162,6 +164,62 @@ statements and for `notation`, `syntax` or macros whose atoms mention one, which
 how a statement can be made to mean something other than what it says. The fixture
 project plants both (`def riemannZeta` in a side namespace and
 `notation "RiemannHypothesis" => True`), and the test checks that both are found.
+
+## Declaration graph
+
+`decls` builds a graph of declarations from source text alone. Each theorem, def,
+structure and instance is a node, and an edge goes from a declaration to every
+project name its signature or proof mentions. Names are resolved the way Lean would
+look them up: the declaration's own namespaces from the innermost out (a
+`theorem Foo.bar` inside `namespace A` sees `A.Foo`, `A` and the root), then the
+file's `open`s, and a dotted name that matches nothing falls back to its prefix, so
+`Pack.val` links to the structure `Pack`. It takes two passes over the files: the
+first collects every declared name, the second resolves references against them,
+which keeps memory to one integer per edge instead of holding a million proof bodies.
+
+The walk starts from every declaration in the root modules. From the reached part it
+computes the dominator tree (Cooper, Harvey and Kennedy's iterative algorithm): a
+declaration dominates another if every chain of references from the main theorems to
+the second passes through the first. Weighting each node by the source lines it
+spans, the big subtrees are the lemmas the whole proof funnels through, which is a
+more useful map of a large development than a raw call graph. On the fixture project:
+
+```
+dominator tree, subtrees of at least 1 lines, depth 8:
+primitive  [2 decls, 7 lines]  src/Main.lean:8
+  Proof.grh  [1 decls, 6 lines]  src/Proof/Core.lean:7
+PrimitiveZerosOnLine  [1 decls, 3 lines]  src/Statements.lean:7
+ZetaZerosOnLine  [1 decls, 3 lines]  src/Statements.lean:4
+Proof.rh  [1 decls, 2 lines]  src/Proof/Core.lean:5
+riemannHypothesis  [1 decls, 2 lines]  src/Main.lean:4
+zeros  [1 decls, 2 lines]  src/Main.lean:6
+```
+
+`Proof.rh` sits at the top level because two main theorems use it, so neither
+dominates it. `--svg` draws the same tree with a bar per node.
+
+What a source-level graph misses is everything elaboration decides: instances found
+by type class search, lemmas a `simp` set or a tactic picks up without naming them,
+and generalized field notation (`h.trans` where only the type of `h` says which
+`trans`). So "not reached by name" is not the same as unused. The exact graph needs
+the built environment, which is the sandbox job's business.
+
+## Manuscript triage
+
+`manuscript` works on the page-numbered text from `pdftext`. It indexes numbered
+results (`Theorem 7.2.1.4 (Title).`, nested parentheses in titles included) with
+their pages, and builds a cross-reference graph by assigning each mention of a
+numbered result to the result whose header precedes it. Mentions inside citation
+brackets don't count, so `[AB, Lemma 1]` is not a reference to Lemma 1.
+A line holding only `Theorem 3.1.2.4.` at the left margin is a sentence that wrapped,
+not a header; the parser skips it.
+
+It then reports references to numbers that have no header, numbers used by two
+headers, gaps in each numbering sequence (and whether the missing number is an
+equation label such as `(3.1.2.5)`, since equations share the counter), editorial
+markers (`??` from unresolved LaTeX references, TODO, "to be written", omitted
+proofs) with page and line, and every bracket citation matched against the
+bibliography.
 
 ## Tests
 
