@@ -273,10 +273,11 @@ def folders(g: Graph, nodes: Iterable[int], depth: int = 2) -> Counter:
 
 
 def svg(rows: list[tuple[int, str, int, str]], title: str) -> str:
-    h, top, indent, bar_x, bar_w = 18, 44, 14, 640, 220
+    h, top, indent, bar_x, bar_w, width = 18, 44, 14, 640, 180, 1100
     peak = max((r[2] for r in rows), default=1) or 1
     out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="{top + h * len(rows) + 16}"'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}"'
+        f' height="{top + h * len(rows) + 16}"'
         ' font-family="Consolas, Menlo, monospace" font-size="12">',
         '<rect width="100%" height="100%" fill="#ffffff"/>',
         f'<text x="12" y="22" font-size="14" fill="#111">{_esc(title)}</text>',
@@ -286,7 +287,7 @@ def svg(rows: list[tuple[int, str, int, str]], title: str) -> str:
         y = top + i * h
         x = 12 + depth * indent
         if i % 2:
-            out.append(f'<rect x="0" y="{y}" width="1000" height="{h}" fill="#f2f4f7"/>')
+            out.append(f'<rect x="0" y="{y}" width="{width}" height="{h}" fill="#f2f4f7"/>')
         room = (bar_x - 16 - x) // 7
         text = label if len(label) <= room else "…" + label[-(room - 1) :]
         out.append(f'<text x="{x}" y="{y + 13}" fill="#111">{_esc(text)}</text>')
