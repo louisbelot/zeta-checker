@@ -4,10 +4,20 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
-from zeta_checker import archive, fetch, hatches, imports, lake, pdftext, statements
+from zeta_checker import (
+    archive,
+    fetch,
+    hatches,
+    imports,
+    lake,
+    manuscript,
+    pdftext,
+    statements,
+)
 from zeta_checker.reference import REFERENCES
 
 
@@ -120,6 +130,56 @@ def cmd_find(args) -> int:
     for page, line, text in hits[: args.limit]:
         print(f"p{page}:{line}: {text}")
     print(f"{len(hits)} matching lines")
+    return 0
+
+
+def cmd_manuscript(args) -> int:
+    outline = args.text.with_name(args.text.name.removesuffix(".txt") + ".outline.txt")
+    tr = manuscript.triage(
+        args.text.read_text(encoding="utf-8"),
+        outline.read_text(encoding="utf-8") if outline.exists() else "",
+    )
+    if tr.chapters:
+        print(table([(t, p, n) for t, p, n in tr.chapters], ["part", "page", "pages"]))
+        print()
+    kinds = Counter(r.kind for r in tr.results)
+    print(f"numbered results: {len(tr.results)}")
+    print(table(kinds.most_common(), ["kind", "count"]))
+    if args.index:
+        for r in tr.results:
+            title = f" ({r.title})" if r.title else ""
+            print(f"  p{r.page}  {r.label}{title}")
+    labels = {r.num: r for r in tr.results}
+    refs = sum(tr.edges.values())
+    print(f"\ncross-references between numbered results: {refs} ({len(tr.edges)} distinct pairs)")
+    rows = [
+        (labels[n].label, labels[n].page, k, labels[n].title[:60])
+        for n, k in tr.indegree().most_common(args.top)
+    ]
+    print(table(rows, ["most referenced", "page", "from", "title"]))
+    internal = {k: v for k, v in tr.dangling.items() if k.split()[1].count(".") >= 2}
+    print(f"\nreferences to numbers with no header: {sum(tr.dangling.values())}")
+    print(f"  of those, numbered with at least three parts: {len(internal)}")
+    for k, v in sorted(internal.items()):
+        print(f"    {k}  x{v}")
+    print(f"numbers used by two headers: {len(tr.duplicates)}")
+    for num, rs in tr.duplicates.items():
+        print(f"  {num}: " + ", ".join(f"{r.kind} p{r.page}" for r in rs))
+    missing = [(n, why) for v in tr.gaps.values() for n, why in v]
+    print(f"gaps in the numbering: {len(missing)}")
+    for n, why in missing:
+        print(f"  {n}  {why or 'not found anywhere'}")
+    print(f"\nmarkers: {len(tr.markers)}")
+    for kind, page, line, text in tr.markers:
+        print(f"  p{page}:{line} [{kind}] {text[:140]}")
+    cited = sorted(tr.citations.items(), key=lambda kv: -len(kv[1]))
+    total = sum(len(v) for v in tr.citations.values())
+    print(f"\nbibliography: {len(tr.bibliography)} entries, {len(cited)} cited, {total} citations")
+    rows = [(k, len(v), len(set(v)), tr.bibliography[k][:70]) for k, v in cited[: args.top]]
+    print(table(rows, ["key", "cites", "pages", "entry"]))
+    never = sorted(set(tr.bibliography) - set(tr.citations))
+    print(f"entries never cited in brackets: {len(never)}")
+    dump(args.json, tr.as_dict())
     return 0
 
 
@@ -393,6 +453,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("pattern")
     s.add_argument("--limit", type=int, default=50)
     s.set_defaults(run=cmd_find)
+
+    s = sub.add_parser("manuscript", help="numbered results, cross-references and markers")
+    s.add_argument("text", type=Path, help="page-numbered text from pdftext")
+    s.add_argument("--index", action="store_true", help="print every numbered result")
+    s.add_argument("--top", type=int, default=15)
+    s.add_argument("--json", type=Path)
+    s.set_defaults(run=cmd_manuscript)
 
     s = sub.add_parser("config", help="toolchain, dependencies and Lake options")
     s.add_argument("root", type=Path)

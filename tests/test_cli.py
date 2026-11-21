@@ -81,3 +81,22 @@ def test_archive_mode_matches_directory(fixtures, tmp_path, capsys):
     assert "import cone of Statements, Main: 3 modules" in capsys.readouterr().out
     assert main(["statements", str(project), "--archive", stem, "--under", "lean"]) == 0
     assert "names traced through 7 files" in capsys.readouterr().out
+
+
+def test_manuscript_command(tmp_path, capsys):
+    text = tmp_path / "paper.txt"
+    text.write_text(
+        "--- page 1 ---\n     Lemma 2.1.1.1. Easy.\n     Theorem 2.1.1.2. By Lemma 2.1.1.1 "
+        "and Lemma 2.1.1.7.\n--- page 2 ---\nAs in Theorem ??.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "paper.outline.txt").write_text("Chapter 2  ..  1\n", encoding="utf-8")
+    out = tmp_path / "paper.json"
+    assert main(["manuscript", str(text), "--index", "--json", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "numbered results: 2" in printed and "  p1  Theorem 2.1.1.2" in printed
+    assert "Lemma 2.1.1.7  x1" in printed
+    assert "p2:1 [editorial] As in Theorem ??." in printed
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body["edges"] == [["2.1.1.2", "2.1.1.1", 1]]
+    assert body["chapters"] == [["Chapter 2", 1, 2]]
