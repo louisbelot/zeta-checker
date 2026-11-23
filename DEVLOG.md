@@ -156,3 +156,82 @@ Bibliography page and every bracket citation is matched against its keys.
 Next: the size of a sandbox build compared with Mathlib's, then the Linux CI job that
 builds the main theorems' cone with no secrets and prints `#print axioms`, and
 comparator with a challenge file holding Mathlib's statement.
+
+## 2026-11-23
+
+An `audit` command that runs every static check on a Lean project and writes one
+report, a suite of planted failures it has to catch, and tracking of the upstream
+files against an independent verification effort.
+
+**Cross-check.** The Lean community has a public comparator setup for the development
+(leanprover-community/riemann-hypothesis, notes in `verification/`). Its notes publish
+the SHA-256 of the 14 parts joined: `9631b4f0...f49c7fc`, 239,275,554 bytes. Hashing
+the local parts as one stream gives the same digest, so both audits read the same
+bytes. Their static scan and this one agree on `addDecl` in one file and on the five
+`BuildAid` files that call `modifyEnv`. They count 33 `run_tac`; a plain text search
+here finds 32 in 16 files, the same as the scanner, so the gap is not masking. They
+also describe two tactics that close a goal with `MVarId.assign`, which skips the
+elaborator's type check and leaves the kernel as the only check. The scanner had no
+rule for that. It has one now (`MVarId.assign`, medium, only on a qualified call so a
+local named `assign` doesn't count), and on the development it finds the three call
+sites the notes describe.
+
+Their build numbers also settle where a kernel check can run: 48 cores and 503 GB of
+RAM on course for 7 to 10 hours, Lake setup files of about a terabyte unless deleted
+during the build, an export of 61.6 GB that peaked at 163 GB. A free GitHub runner has
+16 GB and 14 GB of disk, so no sandbox workflow was added. The README says so.
+
+**Tracking upstream.** The manifest now records the joined digest of a split archive,
+and `extract` checks it before reading a member (`--record` stores it the first time).
+`fetch --upstream` also asks for the part after the last one. The server returns 200
+and an HTML page for any path, so a status code says nothing; the probe reads the
+content type. Run today: all 16 files unchanged, `part15` is an HTML page.
+
+**audit.** One pass that loads the Lake config, finds the root modules (the `roots` of
+each `lean_lib` without globs), parses their theorems, builds the import graph and its
+cone, scans every file for hatches and traces every name the statements use. Findings
+have a severity, a code, a place and the text, sorted on all five fields so the JSON is
+the same however the files are read. The exit code is 2 for critical, 1 for high.
+
+The import cone sets the severity. A hatch outside the cone is `low`, since nothing the
+statements import can reach it; inside, it keeps the scanner's risk. Options set to
+`false` or `0` are counted, not listed: on the development every one of the 11,203
+`set_option autoImplicit` lines sets it to `false`, which only makes elaboration
+stricter.
+
+Hypotheses on the root theorems are checked one by one: `False`, `¬ True` or `⊥` is
+vacuous, a hypothesis equal to the conclusion or naming the statement is circular, and a
+hypothesis using a project-declared name is high. The first version looked for that name
+anywhere in the cone and flagged `DirichletCharacter.LFunction` in two GRH statements,
+because the development declares a `def LFunction` in two namespaces of its own. That was
+wrong in principle: those statements are Props defined in `Statements.lean`, which
+imports only Mathlib, so nothing from the project is in scope where their names are
+resolved. Each theorem now carries the file its statement is elaborated in (the Prop's
+file when it unfolds one), and a declaration is high only if its module is in that
+file's import cone.
+
+Lake options get the same ranking as `set_option`, read from `leanOptions` (nested
+tables flattened to dotted names) and from `-Dname=value` in `moreLeanArgs` and
+`weakLeanArgs`. `debug.skipKernelTC = true` in a lakefile would turn the kernel off for
+a whole library and never show up in a `.lean` file.
+
+A bug the self-review caught: findings were deduplicated through a set, so two hatches
+of the same rule on one line collapsed into one. The test that reads the files in
+reverse order now also counts them.
+
+**Planted failures.** `tests/test_audit.py` writes small fake projects, each with one
+trick: a `False` hypothesis, `¬ True →`, RH assumed to prove RH, a hypothesis defined in
+the project, an extra `axiom`, `skipKernelTC` in source, in `leanOptions` and as a `-D`
+argument, `sorry` behind a macro, `native_decide`, a goal closed by `MVarId.assign`, a
+project `riemannZeta` the statement can see, notation over the statement's name, the
+critical line moved to 1/3, no RH theorem, a `lakefile.lean`, a module named like a
+Mathlib file, a manifest that disagrees with the pin and an unofficial toolchain. All
+are flagged at medium or above. A clean project is the control and gives nothing.
+
+On the extracted development the audit took 3m15s on the second run (6m22s the first,
+with another scan running alongside); the findings stay in
+the workspace with the rest of the report.
+
+Next: Lean challenge files for the standard equivalent forms of RH (Robin, Lagarias,
+Li, Nyman-Beurling), checked in CI against Mathlib only, and the manuscript triage made
+generic for any PDF claim.
