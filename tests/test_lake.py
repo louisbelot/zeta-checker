@@ -75,3 +75,17 @@ def test_stray_files(project):
     (project / "bin/tool").write_bytes(b"\x7fELF\x02\x01\x01\x00")
     (project / "notes.txt").write_text("hi")
     assert lake.stray_files(project) == [("bin/tool", "elf"), ("notes.txt", "other")]
+
+
+def test_options_from_lean_options_and_arguments(fixtures, tmp_path):
+    lk = lake.load(fixtures / "project")
+    assert ("package", "autoImplicit", "False") in lake.options(lk)
+    assert ("lean_lib Extra", "synthInstance.maxHeartbeats", "400000") in lake.options(lk)
+    (tmp_path / "lakefile.toml").write_text(
+        'name = "x"\nmoreLeanArgs = ["-Ddebug.skipKernelTC=true", "--tstack=1"]\n', encoding="utf-8"
+    )
+    assert lake.options(lake.load(tmp_path)) == [("package", "debug.skipKernelTC", "true")]
+
+
+def test_roots_skip_glob_libs(fixtures):
+    assert lake.roots(lake.load(fixtures / "project")) == ["Statements", "Main"]

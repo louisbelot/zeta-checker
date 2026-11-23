@@ -121,6 +121,42 @@ def arguments(lake: Lake) -> list[str]:
     return rows
 
 
+def _flat(opts: dict, prefix: str = "") -> list[tuple[str, object]]:
+    out = []
+    for k, v in opts.items():
+        if isinstance(v, dict):
+            out += _flat(v, f"{prefix}{k}.")
+        else:
+            out.append((f"{prefix}{k}", v))
+    return out
+
+
+_DARG = re.compile(r"^-D\s*([^=\s]+)=(.*)$")
+
+
+def options(lake: Lake) -> list[tuple[str, str, str]]:
+    scopes = [("package", lake.config)]
+    scopes += [(f"lean_lib {lib.get('name')}", lib) for lib in lake.config.get("lean_lib", [])]
+    out = []
+    for where, cfg in scopes:
+        out += [(where, k, str(v)) for k, v in _flat(cfg.get("leanOptions", {}))]
+        for key in ("moreLeanArgs", "weakLeanArgs"):
+            for arg in cfg.get(key, []):
+                m = _DARG.match(str(arg))
+                if m:
+                    out.append((where, m.group(1), m.group(2)))
+    return out
+
+
+def roots(lake: Lake) -> list[str]:
+    return [
+        r
+        for lib in lake.config.get("lean_lib", [])
+        if "globs" not in lib
+        for r in lib.get("roots", [])
+    ]
+
+
 def module_name(path: Path, src: Path) -> str:
     return ".".join(path.relative_to(src).with_suffix("").parts)
 
