@@ -10,6 +10,7 @@ from pathlib import Path
 
 from zeta_checker import (
     archive,
+    audit,
     declgraph,
     fetch,
     hatches,
@@ -269,26 +270,10 @@ def cmd_scan(args) -> int:
     return 0
 
 
-def _modules(lk: lake.Lake, wanted: list[str] | None) -> list[str]:
-    if wanted:
-        return wanted
-    out = []
-    for lib in lk.config.get("lean_lib", []):
-        if "globs" not in lib and "roots" in lib:
-            out.extend(lib["roots"])
-    return out
-
-
 def cmd_statements(args) -> int:
     lk = lake.load(args.root)
     src = args.root / lk.config.get("srcDir", ".")
-    parsed = []
-    for name in _modules(lk, args.module):
-        path = src / Path(*name.split(".")).with_suffix(".lean")
-        rel = path.relative_to(args.root).as_posix()
-        parsed.append(statements.parse(path.read_text(encoding="utf-8"), rel))
-    defs = {d.full: d for m in parsed for d in m.decls if d.kind in ("def", "abbrev")}
-    wanted: set[str] = set()
+    parsed, thms, wanted = audit.theorems(args.root, lk, args.module or lake.roots(lk))
     body = {"modules": [], "theorems": []}
     for m in parsed:
         print(f"{m.file}")
@@ -308,38 +293,24 @@ def cmd_statements(args) -> int:
             del d["raw"]
         body["modules"].append(mod)
     print()
-    for d in (d for m in parsed for d in m.decls if d.kind in ("theorem", "lemma", "example")):
-        stmt = statements.statement(d)
-        target = defs.get(stmt)
-        expr = target.body if target else stmt
-        items = statements.shape(expr)
-        found = statements.names(expr, statements.bound_names(items))
-        wanted.update(n for n in found + statements.names(stmt) if not n.startswith("."))
-        entry = {"decl": d.full, "statement": stmt, "shape": items, "names": found}
-        print(f"{d.full}  ({d.file}:{d.line})")
-        if target:
-            print(f"  statement unfolds {target.full} ({target.file}:{target.line})")
-            entry["unfolds"] = target.full
-        for kind, text in items:
+    for t in thms:
+        print(f"{t.decl}  ({t.file}:{t.line})")
+        if t.unfolds:
+            print(f"  statement unfolds {t.unfolds}")
+        for kind, text in t.shape:
             print(f"  {kind:<10} {text}")
-        print(f"  names: {', '.join(found)}")
-        ref = REFERENCES.get(stmt) if target is None else None
-        if ref is not None:
+        print(f"  names: {', '.join(t.names)}")
+        ref = REFERENCES.get(t.reference)
+        if t.exact:
             print(f"  this is {ref.name} itself: {ref.repo}@{ref.rev[:12]} {ref.path}:{ref.line}")
-            items = statements.shape(ref.statement)
-            ref_names = statements.names(ref.statement, statements.bound_names(items))
-            wanted.update(n for n in ref_names if not n.startswith("."))
-        elif "riemannZeta" in found:
-            ref = REFERENCES["RiemannHypothesis"]
+        elif ref is not None:
             print(f"  against {ref.name} ({ref.repo}@{ref.rev[:12]} {ref.path}:{ref.line})")
-            rows = statements.compare(expr, ref.statement)
-            for kind, ours, theirs, verdict in rows:
+            for kind, ours, theirs, verdict in t.rows:
                 print(f"    {kind:<10} {verdict}")
                 if verdict != "same":
                     print(f"      here:    {ours}")
                     print(f"      mathlib: {theirs}")
-            entry["against"] = {"reference": asdict(ref), "rows": rows}
-        body["theorems"].append(entry)
+        body["theorems"].append(asdict(t))
         print()
     if args.trace:
         declared, overrides, n = statements.trace(sources(args), wanted)
@@ -355,10 +326,30 @@ def cmd_statements(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    report = audit.run(args.root, lambda: sources(args), args.module)
+    print(f"{report['root']}: {report['toolchain']}, {report['lakefile']}")
+    src, cone = report["sources"], report["cone"]
+    print(f"{src['modules']} modules, {src['lines']} lines; cone of {', '.join(report['modules'])}")
+    print(f"  {cone['modules']} modules, {cone['lines']} lines")
+    print(table([(s, n) for s, n in report["severity"].items()], ["severity", "findings"]))
+    keep = audit.SEVERITIES[: audit.SEVERITIES.index(args.severity) + 1]
+    for f in report["findings"]:
+        if f["severity"] in keep:
+            at = f"{f['file']}:{f['line']}" if f["line"] else f["file"]
+            print(f"[{f['severity']}] {f['code']}  {at}  {f['detail'][:160]}")
+    if report["low_in_cone"]:
+        print("low-risk hits inside the cone, counted only:")
+        print(table(sorted(report["low_in_cone"].items(), key=lambda kv: -kv[1]), ["rule", "hits"]))
+    dump(args.json, report)
+    worst = audit.worst(report)
+    return 2 if worst == "critical" else 1 if worst == "high" else 0
+
+
 def cmd_decls(args) -> int:
     lk = lake.load(args.root)
     src_dir = lk.config.get("srcDir", ".")
-    roots = set(args.roots or _modules(lk, None))
+    roots = set(args.roots or lake.roots(lk))
     g = declgraph.build(lambda: sources(args))
     edges = len(g.targets)
     kinds = Counter(g.kinds)
@@ -425,7 +416,7 @@ def cmd_imports(args) -> int:
     lk = lake.load(args.root)
     src_dir = lk.config.get("srcDir", ".")
     g = imports.build_pairs(sources(args), src_dir)
-    roots = args.roots or _modules(lk, None)
+    roots = args.roots or lake.roots(lk)
     cone = g.cone(roots)
     packages = imports.package_roots(lk.manifest)
     n, lines, size = g.totals(g.imports)
@@ -553,6 +544,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
     s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_statements)
+
+    s = sub.add_parser("audit", help="every static check on a Lean project, one JSON report")
+    s.add_argument("root", type=Path)
+    s.add_argument("--module", action="append", help="statement modules (default: lib roots)")
+    s.add_argument("--severity", choices=audit.SEVERITIES, default="medium")
+    s.add_argument("--json", type=Path)
+    s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
+    s.add_argument("--under", default="", help="archive folder that holds the project")
+    s.set_defaults(run=cmd_audit)
 
     s = sub.add_parser("imports", help="import graph and the cone of the statement modules")
     s.add_argument("root", type=Path)
