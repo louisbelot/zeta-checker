@@ -34,6 +34,7 @@ class Theorem:
     shape: list[tuple[str, str]]
     names: list[str]
     unfolds: str = ""
+    scope: str = ""
     reference: str = ""
     exact: bool = False
     rows: list[tuple[str, str, str, str]] = field(default_factory=list)
@@ -55,7 +56,11 @@ def theorems(root: Path, lk: lake.Lake, modules: list[str]):
         items = statements.shape(expr)
         found = statements.names(expr, statements.bound_names(items))
         wanted.update(n for n in found + statements.names(stmt) if not n.startswith("."))
-        t = Theorem(d.full, d.file, d.line, stmt, items, found, target.full if target else "")
+        t = Theorem(d.full, d.file, d.line, stmt, items, found)
+        if target:
+            t.unfolds, t.scope = target.full, target.file
+        else:
+            t.scope = d.file
         ref = REFERENCES.get(stmt) if target is None else None
         if ref is not None:
             t.reference, t.exact = ref.name, True
@@ -153,46 +158,63 @@ def run(root: Path, pairs: Pairs, modules: list[str] | None = None) -> dict:
     below = Counter()
     for h in report.hits:
         inside = imports.module_of(h.file, src_dir) in cone
-        if h.risk == "low" and inside:
+        value = h.name.split()[-1].lower() if h.rule.startswith("set_option ") else ""
+        if inside and value in OFF:
+            below[f"{h.rule} {value}"] += 1
+        elif inside and h.risk == "low":
             below[h.rule] += 1
-            continue
-        severity = h.risk if inside else "low"
-        detail = h.text if inside else f"outside the import cone: {h.text}"
-        findings.append(Finding(severity, f"hatch {h.rule}", h.file, h.line, detail))
+        elif inside:
+            findings.append(Finding(h.risk, f"hatch {h.rule}", h.file, h.line, h.text))
+        elif value not in OFF:
+            detail = f"outside the import cone: {h.text}"
+            findings.append(Finding("low", f"hatch {h.rule}", h.file, h.line, detail))
 
     declared, overrides, _ = statements.trace(pairs(), wanted) if wanted else ([], [], 0)
-    roots_rel = {t.file for t in thms}
+    cones: dict[str, set[str]] = {}
+
+    def sees(scope: str, rel: str) -> bool:
+        if scope not in cones:
+            cones[scope] = graph.cone([imports.module_of(scope, src_dir)])
+        return imports.module_of(rel, src_dir) in cones[scope]
+
+    uses: dict[str, set[str]] = {}
+    for t in thms:
+        for n in statements.names(t.statement):
+            uses.setdefault(last(n), set()).add(t.file)
+        for n in t.names:
+            uses.setdefault(last(n), set()).add(t.scope)
+    scopes = {t.file for t in thms} | {t.scope for t in thms}
     root_decls = {(d.file, d.line) for m in parsed for d in m.decls}
-    project: dict[str, str] = {}
     for rel, line, kind, name in declared:
-        inside = imports.module_of(rel, src_dir) in cone
-        if inside:
-            project.setdefault(last(name), f"{rel}:{line}")
         if (rel, line) in root_decls:
             continue
+        seen = any(sees(scope, rel) for scope in uses.get(last(name), ()))
+        note = "" if seen else " (not imported where the statement is elaborated)"
         findings.append(
             Finding(
-                "high" if inside else "low",
+                "high" if seen else "low",
                 "declares-statement-name",
                 rel,
                 line,
-                f"{kind} {name}" + ("" if inside else " (outside the import cone)"),
+                f"{kind} {name}{note}",
             )
         )
     for rel, line, kind, text in overrides:
-        inside = imports.module_of(rel, src_dir) in cone or rel in roots_rel
+        seen = rel in scopes or any(sees(scope, rel) for scope in scopes)
+        note = "" if seen else " (not imported where the statement is elaborated)"
         findings.append(
             Finding(
-                "high" if inside else "low",
+                "high" if seen else "low",
                 "notation-on-statement-name",
                 rel,
                 line,
-                f"{kind} {text}" + ("" if inside else " (outside the import cone)"),
+                f"{kind} {text}{note}",
             )
         )
 
     props = {t.unfolds for t in thms if t.unfolds} | set(REFERENCES)
     for t in thms:
+        project = {last(n): f"{rel}:{line}" for rel, line, _, n in declared if sees(t.scope, rel)}
         findings += hypotheses(t, props, project)
         for kind, _, _, diff in (r for r in t.rows if r[3] != "same"):
             detail = f"{t.decl} vs {t.reference}: {kind}: {diff or 'differs'}"
@@ -202,7 +224,7 @@ def run(root: Path, pairs: Pairs, modules: list[str] | None = None) -> dict:
         findings.append(Finding("high", "no-rh-statement", where, 0, "no theorem states RH"))
 
     order = {s: i for i, s in enumerate(SEVERITIES)}
-    findings = sorted(set(findings), key=lambda f: (order[f.severity], f.code, f.file, f.line))
+    findings = sorted(findings, key=lambda f: (order[f.severity], f.code, f.file, f.line, f.detail))
     n, lines, size = graph.totals(graph.imports)
     c_n, c_lines, _ = graph.totals(cone)
     return {

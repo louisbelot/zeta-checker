@@ -17,7 +17,7 @@ rev = "{MATHLIB}"
 
 [[lean_lib]]
 name = "Main"
-roots = ["Main"]
+roots = {{roots}}
 """
 MANIFEST = {
     "version": "1.1.0",
@@ -43,10 +43,14 @@ RESTATED = (
 )
 
 
-def project(root, files=None, options="", toolchain="leanprover/lean4:v4.33.1", rev=MATHLIB):
+def project(
+    root, files=None, options="", toolchain="leanprover/lean4:v4.33.1", rev=MATHLIB, roots=("Main",)
+):
     files = {"src/Main.lean": MAIN, "src/Proof.lean": PROOF} | (files or {})
     (root / "lean-toolchain").write_text(toolchain + "\n", encoding="utf-8")
-    (root / "lakefile.toml").write_text(LAKEFILE.format(options=options), encoding="utf-8")
+    (root / "lakefile.toml").write_text(
+        LAKEFILE.format(options=options, roots=json.dumps(list(roots))), encoding="utf-8"
+    )
     manifest = MANIFEST | {"packages": [MANIFEST["packages"][0] | {"rev": rev}]}
     (root / "lake-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     for rel, text in files.items():
@@ -230,6 +234,37 @@ def test_audit_command_exit_codes(tmp_path, capsys):
 
 
 def test_report_is_stable(tmp_path):
-    a = project(tmp_path, {"src/Stray.lean": "axiom a : False\naxiom b : False\n"})
+    stray = "axiom a : False\naxiom b : False\naxiom c : False axiom d : False\n"
+    a = project(tmp_path, {"src/Stray.lean": stray, "src/Other.lean": stray})
     b = audit.run(tmp_path, lambda: reversed(list(hatches.read(tmp_path))))
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    assert sum(f["code"] == "hatch axiom" for f in a["findings"]) == 8
+
+
+def test_names_are_checked_where_the_statement_is_elaborated(tmp_path):
+    files = {
+        "src/Statements.lean": HEAD
+        + "def ZerosOnLine : Prop :=\n  ∀ s : ℂ, riemannZeta s = 0 → s.re = 1 / 2\n",
+        "src/Main.lean": "import Statements\nimport Proof\n\ntheorem zeros : ZerosOnLine := rh\n",
+        "src/Proof.lean": PROOF
+        + "\nnamespace Local\n\ndef riemannZeta (s : ℂ) : ℂ := s\n\nend Local\n",
+    }
+    report = project(tmp_path, files, roots=("Statements", "Main"))
+    assert report["theorems"][0]["unfolds"] == "ZerosOnLine"
+    rows = {(f["severity"], f["code"]) for f in report["findings"]}
+    assert ("low", "declares-statement-name") in rows
+    assert ("high", "hypothesis-project-name") not in rows
+    assert ("high", "declares-statement-name") not in rows
+
+
+def test_options_switched_off_are_only_counted(tmp_path):
+    proof = PROOF.replace(
+        "namespace Proof",
+        "set_option autoImplicit false\nset_option debug.skipKernelTC false\n\nnamespace Proof",
+    )
+    report = project(tmp_path, {"src/Proof.lean": proof})
+    assert flagged(report, "low") == set()
+    assert report["low_in_cone"] == {
+        "set_option autoImplicit false": 1,
+        "set_option debug.skipKernelTC false": 1,
+    }
