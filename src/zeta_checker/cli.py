@@ -46,7 +46,7 @@ def cmd_fetch(args) -> int:
     sources = fetch.load(args.manifest)
     root = args.workspace / "downloads"
     if args.upstream:
-        rows = fetch.upstream(sources)
+        rows = fetch.upstream(sources) + fetch.next_parts(sources)
     elif args.rehash:
         rows = fetch.rehash(sources)
     else:
@@ -59,13 +59,28 @@ def cmd_fetch(args) -> int:
             ["file", "state", "bytes", "sha256", ""],
         )
     )
-    print(f"{sum(r.size for r in rows)} bytes in {len(rows)} files")
+    files = [r for r in rows if r.state != "absent"]
+    print(f"{sum(r.size for r in files)} bytes in {len(files)} files")
     bad = [r for r in rows if r.state in ("changed", "new")]
     return 1 if bad else 0
 
 
 def cmd_extract(args) -> int:
     paths = archive.parts(args.workspace / "downloads", args.stem)
+    with archive.stream(paths) as f:
+        size, digest = fetch.digest(f)
+    known = fetch.joined(args.manifest).get(args.stem)
+    if known is None:
+        state = "recorded" if args.record else "not in the manifest"
+        if args.record:
+            fetch.record_joined(args.manifest, args.stem, len(paths), size, digest)
+    elif known == {"parts": len(paths), "size": size, "sha256": digest}:
+        state = "matches the manifest"
+    else:
+        state = f"differs from the manifest: {known}"
+    print(f"joined {args.stem}: {size} bytes, sha256 {digest} ({state})")
+    if state.startswith("differs"):
+        return 1
     with archive.stream(paths) as f:
         packed, unpacked, members = archive.gzip_check(f)
     print(
@@ -493,6 +508,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--stem", default="lean.tar.gz")
     s.add_argument("--into", default="alpoge_lean")
     s.add_argument("--list", action="store_true", help="check members without extracting")
+    s.add_argument("--manifest", type=Path, default=Path("manifest.json"))
+    s.add_argument("--record", action="store_true", help="store the joined hash if missing")
     s.set_defaults(run=cmd_extract)
 
     s = sub.add_parser("inventory", help="files, lines and bytes by extension and directory")

@@ -143,3 +143,32 @@ def test_rehash_matches_local(tmp_path):
     assert fetch.rehash([src], opener=Server())[0].state == "same"
     src.sha256 = "0" * 64
     assert fetch.rehash([src], opener=Server())[0].state == "changed"
+
+
+def test_save_keeps_joined_records(tmp_path):
+    path = tmp_path / "manifest.json"
+    fetch.record_joined(path, "x.tar.gz", 2, 10, "ab" * 32)
+    fetch.save(path, [fetch.Source("a", "https://example.org/a", 1, "cd" * 32)])
+    assert fetch.joined(path) == {"x.tar.gz": {"parts": 2, "size": 10, "sha256": "ab" * 32}}
+    assert [s.name for s in fetch.load(path)] == ["a"]
+
+
+def test_next_part_is_probed():
+    parts = [
+        fetch.Source(f"a.tar.gz.part0{i}", f"https://example.test/a.tar.gz.part0{i}")
+        for i in (1, 2)
+    ]
+    seen = []
+
+    def html(req, timeout=None):
+        seen.append(req.full_url)
+        return Response(200, b"", {"Content-Type": "text/html; charset=utf-8"})
+
+    rows = fetch.next_parts(
+        parts + [fetch.Source("remark.pdf", "https://example.test/remark.pdf")], opener=html
+    )
+    assert seen == ["https://example.test/a.tar.gz.part03"]
+    assert [(r.name, r.state) for r in rows] == [("a.tar.gz.part03", "absent")]
+    rows = fetch.next_parts(parts, opener=Server())
+    assert rows[0].state == "new" and rows[0].size == len(DATA)
+    assert fetch.next_parts(parts, opener=Server(script=[404]))[0].detail == "HTTP 404"

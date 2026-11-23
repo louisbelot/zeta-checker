@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -13,6 +14,7 @@ from pathlib import Path
 CHUNK = 1 << 20
 AGENT = "zeta-checker/0.1"
 RETRY_CODES = {408, 425, 429, 500, 502, 503, 504}
+PART = re.compile(r"^(.+)\.part(\d+)$")
 TRANSIENT = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError)
 
 
@@ -44,9 +46,31 @@ def load(path: Path) -> list[Source]:
     return [Source(**entry) for entry in data["sources"]]
 
 
+def _body(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
 def save(path: Path, sources: list[Source]) -> None:
-    body = {"sources": [asdict(s) for s in sources]}
+    body = _body(path) | {"sources": [asdict(s) for s in sources]}
     path.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def joined(path: Path) -> dict[str, dict]:
+    return _body(path).get("joined", {})
+
+
+def record_joined(path: Path, stem: str, parts: int, size: int, digest: str) -> None:
+    body = _body(path)
+    body.setdefault("joined", {})[stem] = {"parts": parts, "size": size, "sha256": digest}
+    path.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def digest(fileobj) -> tuple[int, str]:
+    h, n = hashlib.sha256(), 0
+    while block := fileobj.read(CHUNK):
+        h.update(block)
+        n += len(block)
+    return n, h.hexdigest()
 
 
 def sha256(path: Path) -> str:
@@ -119,7 +143,8 @@ def head(url: str, *, opener: Callable = urllib.request.urlopen, timeout: float 
     req = urllib.request.Request(url, headers={"User-Agent": AGENT}, method="HEAD")
     with opener(req, timeout=timeout) as resp:
         n = resp.headers.get("Content-Length")
-        return _meta(resp.headers) | {"size": int(n) if n and n.isdigit() else None}
+        size = int(n) if n and n.isdigit() else None
+        return _meta(resp.headers) | {"size": size, "type": resp.headers.get("Content-Type")}
 
 
 def remote_sha256(url: str, *, opener: Callable = urllib.request.urlopen) -> tuple[int, str]:
@@ -175,6 +200,31 @@ def upstream(sources: list[Source], *, opener: Callable = urllib.request.urlopen
                 diffs.append(f"{key} {old!r} -> {new!r}")
         state = "changed" if diffs else "same"
         out.append(Status(src.name, state, src.size or 0, src.sha256 or "", "; ".join(diffs)))
+    return out
+
+
+def next_parts(sources: list[Source], *, opener: Callable = urllib.request.urlopen) -> list[Status]:
+    last: dict[str, tuple[int, Source]] = {}
+    for src in sources:
+        m = PART.match(src.name)
+        if m and int(m.group(2)) > last.get(m.group(1), (0, src))[0]:
+            last[m.group(1)] = (int(m.group(2)), src)
+    out = []
+    for stem, (n, src) in sorted(last.items()):
+        name = f"{stem}.part{n + 1:02d}"
+        url = src.url[: -len(src.name)] + name
+        try:
+            meta = head(url, opener=opener)
+        except urllib.error.HTTPError as e:
+            out.append(Status(name, "absent", 0, "", f"HTTP {e.code}"))
+            continue
+        kind = (meta["type"] or "").split(";")[0].strip()
+        if kind == "text/html":
+            out.append(
+                Status(name, "absent", meta["size"] or 0, "", "HTML page, not an archive part")
+            )
+        else:
+            out.append(Status(name, "new", meta["size"] or 0, "", kind or "no content type"))
     return out
 
 

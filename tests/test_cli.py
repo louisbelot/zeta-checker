@@ -41,10 +41,21 @@ def test_extract_command(tmp_path, capsys):
     dl = tmp_path / "downloads"
     dl.mkdir()
     (dl / "lean.tar.gz.part01").write_bytes(buf.getvalue())
-    assert main(["-w", str(tmp_path), "extract", "--list"]) == 0
-    assert "1 members: 1 files" in capsys.readouterr().out
-    assert main(["-w", str(tmp_path), "extract"]) == 0
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text('{"sources": []}', encoding="utf-8")
+    cmd = ["-w", str(tmp_path), "extract", "--manifest", str(manifest)]
+    assert main(cmd + ["--list", "--record"]) == 0
+    text = capsys.readouterr().out
+    assert "1 members: 1 files" in text and "(recorded)" in text
+    record = json.loads(manifest.read_text(encoding="utf-8"))["joined"]["lean.tar.gz"]
+    assert record["parts"] == 1 and record["size"] == len(buf.getvalue())
+    assert main(cmd) == 0
+    assert "(matches the manifest)" in capsys.readouterr().out
     assert (tmp_path / "alpoge_lean/lean/src/A.lean").read_bytes() == b"x\ny\n\n"
+    record["sha256"] = "0" * 64
+    manifest.write_text(json.dumps({"joined": {"lean.tar.gz": record}}), encoding="utf-8")
+    assert main(cmd + ["--list"]) == 1
+    assert "differs from the manifest" in capsys.readouterr().out
 
 
 def test_imports_command_splits_hatches(fixtures, tmp_path, capsys):

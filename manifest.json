@@ -128,5 +128,12 @@
       "etag": null,
       "last_modified": "Fri, 20 Nov 2026 18:18:35 GMT"
     }
-  ]
+  ],
+  "joined": {
+    "lean.tar.gz": {
+      "parts": 14,
+      "size": 239275554,
+      "sha256": "9631b4f020199e580ba86178cb56c6e9b09f690c2369a80dc4334aa93f49c7fc"
+    }
+  }
 }
