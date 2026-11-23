@@ -33,7 +33,10 @@ elab "close_it" : tactic => do  -- expect: elab
 
 elab "sneaky" : tactic => do  -- expect: elab
   let g ← getMainGoal
-  g.assign (← mkSorry (← g.getType) false)  -- expect: mkSorry
+  g.assign (← mkSorry (← g.getType) false)  -- expect: mkSorry, MVarId.assign
+
+elab "trust" t:term : tactic => do  -- expect: elab
+  (← getMainGoal).assign (← Term.elabTerm t none)  -- expect: MVarId.assign
 
 def fake : Expr := mkConst ``sorryAx [levelZero]  -- expect: name-literal sorryAx
 

@@ -44,6 +44,8 @@ WORDS = {
     "unsafeBaseIO": ("unchecked", "medium"),
     "unsafeIO": ("unchecked", "medium"),
     "unsafeEIO": ("unchecked", "medium"),
+    "assign": ("unchecked", "medium"),
+    "assignExprMVar": ("unchecked", "medium"),
     "macro_rules": ("meta", "medium"),
     "elab_rules": ("meta", "medium"),
     "elab": ("meta", "medium"),
@@ -147,6 +149,8 @@ def classify(text: str, m: re.Match) -> tuple[str, str, str, str] | None:
         return None
     if word == "skipKernelTC" and re.search(r"set_option\s+$", text[max(start - 40, 0) : start]):
         return None
+    if word in ("assign", "assignExprMVar"):
+        return ("MVarId.assign", group, risk, full) if start < p else None
     if word == "Process":
         return (word, group, risk, full) if full.startswith(("IO.Process.", "Process.")) else None
     if word == "native":

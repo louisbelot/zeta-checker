@@ -26,6 +26,8 @@ def native : Nat := 3
 def partialSums : Nat := 0
 def opaqueish : Nat := 0
 def stopwatch : Nat := 0
+def assign (n : Nat) : Nat := n
+def checkedAssignAll : Nat := assign 0
 def ref : Lean.Name := `macro
 structure Walk (n : Nat) : Prop where
   start : n = n
