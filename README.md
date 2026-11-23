@@ -22,8 +22,14 @@ it.
 Everything in this repo reads files as text. It never builds, elaborates or runs
 the downloaded Lean code: a lakefile, a macro, `#eval`, `run_cmd` or `initialize`
 can execute arbitrary programs, so anything that executes the development belongs
-in a throwaway Linux sandbox, not on a laptop. The kernel check will live in its own
-CI job with no secrets.
+in a throwaway Linux sandbox, not on a laptop.
+
+A kernel check of this development doesn't fit on a free GitHub runner (4 vCPU,
+16 GB, 14 GB of disk, 6 hours per job). The comparator setup above reports a build on
+48 cores and 503 GB of RAM on course for 7 to 10 hours, Lake setup files totalling
+around a terabyte if they are not deleted during the build, and an independent export
+of 61.6 GB that peaked at 163 GB of memory. So this repo stops at static checks and
+points to those runs for the kernel replay.
 
 ## Install
 
@@ -56,6 +62,7 @@ zeta-checker statements <lean-project>  top-level statements traced to their def
 zeta-checker imports <lean-project>     import graph and the cone of the statement modules
 zeta-checker decls <lean-project>       declaration graph and its dominator tree
 zeta-checker manuscript <txt>           numbered results, cross-references, markers, citations
+zeta-checker audit <lean-project>       every static check on a project, one JSON report
 ```
 
 `inventory`, `scan`, `statements`, `imports` and `decls` also take `--archive STEM --under DIR`
@@ -66,6 +73,17 @@ antivirus checks each open, while the tar stream is 14 opens.
 `manifest.json` holds the URL, size, SHA-256 and the server's ETag and
 Last-Modified for each of the 16 files. A rerun of `fetch` fails if a local file no
 longer matches, and `fetch --upstream` flags a changed ETag or size on the server.
+`extract` also hashes the 14 parts as one stream before it reads a member, and the
+manifest records that joined digest: 239,275,554 bytes, SHA-256
+`9631b4f020199e580ba86178cb56c6e9b09f690c2369a80dc4334aa93f49c7fc`. The community's
+comparator setup
+([leanprover-community/riemann-hypothesis](https://github.com/leanprover-community/riemann-hypothesis),
+`verification/NOTES.md`) publishes the same digest for its copy, so both read identical
+bytes.
+`fetch --upstream` also asks for the part after the last one. The server answers any
+path with an HTML page and status 200, so the probe looks at the content type, not the
+status, before it reports a new part.
+
 The alpo.ge parts come without a Content-Length on HEAD and the server ignores
 Range requests for them, so the downloader verifies sizes from the GET response,
 resumes with Range where a server allows it and restarts where it doesn't.
@@ -105,10 +123,16 @@ comparator tool and the usual ways to slip a proof past `#print axioms`:
 | axioms | every `axiom` declaration, with its name |
 | kernel | `set_option debug.skipKernelTC`, `addDecl`, `addDeclWithoutChecking`, `modifyEnv`, `setEnv` |
 | compiler | `native_decide`, `decide +native`, `Lean.ofReduceBool`, `trustCompiler`, `@[implemented_by]`, `@[extern]`, `@[csimp]` |
-| unchecked | `opaque`, `unsafe`, `partial`, `unsafeCast` |
+| unchecked | `opaque`, `unsafe`, `partial`, `unsafeCast`, `MVarId.assign` |
 | meta | `macro`, `macro_rules`, `elab`, `syntax`, `notation`, `infix`, name literals like ``` ``sorryAx ``` |
 | exec | `#eval`, `run_cmd`, `initialize`, `IO.Process` |
 | options | every `set_option`, ranked by what the option can change |
+
+`MVarId.assign` closes a goal with a term the elaborator never checked against the
+goal's type. That is sound as long as the kernel checks the finished declaration, but
+it means the kernel is the only check, so those proofs are the ones to replay with an
+independent checker. The rule came from comparing this scanner with the static scan
+in the community's comparator setup, which lists two such tactics in the development.
 
 Attribute names only count inside `@[...]` or `attribute [...]`, and an escaped
 `«sorry»` is a plain identifier, reported separately. The tests plant every hatch in
@@ -118,7 +142,7 @@ written next to its line, so the test is the file itself. Run on the fixtures:
 
 ```
 $ zeta-checker scan tests/fixtures/lean --risk critical --show 1
-2 files, 117 lines, 3732 bytes scanned
+2 files, 126 lines, 4126 bytes scanned
 risk      group      rule                           hits  files
 critical  unproven   sorry                            10      1
 critical  unproven   MVarId.admit                      1      1
@@ -220,6 +244,64 @@ equation label such as `(3.1.2.5)`, since equations share the counter), editoria
 markers (`??` from unresolved LaTeX references, TODO, "to be written", omitted
 proofs) with page and line, and every bracket citation matched against the
 bibliography.
+
+## Audit
+
+`audit` runs the static checks above on one Lean project and writes a single report:
+Lake configuration, the hatch scan, the statements of the root modules (the `roots` of
+every `lean_lib` without globs, or `--module`), and the import cone of those modules.
+Each finding has a severity (`critical`, `high`, `medium`, `low`, `info`), a code, a
+file and line, and the text behind it. The JSON carries `"schema": 1` and is sorted,
+so two runs over the same files give identical bytes. The exit code is 2 for any
+critical finding, 1 for high, 0 otherwise, which makes it usable as a CI gate.
+
+The import cone decides how much a hit matters. An `axiom` in a module the statement
+files never import can't be in the proof, so it is reported as `low`; inside the cone
+it stays `critical`. Low-risk hits inside the cone (raised heartbeats, notation) are
+only counted, and so is any option set to `false` or `0`. On the root theorems it
+looks at every hypothesis: `False`, `¬ True` or `⊥` is vacuous, a hypothesis equal to
+the conclusion or naming the statement itself is circular, and a hypothesis that uses
+a name the project declares gets flagged so a person reads that definition.
+
+Names are checked against the module where the statement is elaborated, not the whole
+project. If `Main` proves `ZerosOnLine` and that Prop is defined in a `Statements`
+module that imports only Mathlib, then the `riemannZeta` inside it is Mathlib's, even
+when `Main` imports a module that declares its own `riemannZeta`. Such a declaration
+is reported as `low`. It becomes `high` only when the module declaring it is in the
+import cone of the module where that name is read.
+
+`debug.skipKernelTC` counts wherever it is set,
+including `leanOptions` and `-D` arguments in the lakefile, where it would switch the
+kernel off for a whole library without appearing in any `.lean` file.
+
+On the fixture project (one `sorry` behind the RH theorem, and a shadowing definition
+and notation in a module nothing imports):
+
+```
+$ zeta-checker audit tests/fixtures/project
+project: leanprover/lean4:v4.33.1, lakefile.toml
+7 modules, 41 lines; cone of Statements, Main
+  3 modules, 29 lines
+severity  findings
+critical         2
+high             0
+medium           1
+low              3
+info             7
+[critical] hatch sorry  src/Proof/Core.lean:5  theorem rh : RiemannHypothesis := sorry
+[critical] hatch sorry  src/Proof/Core.lean:10  sorry
+[medium] statement-differs  src/Main.lean:6  zeros vs RiemannHypothesis: premise: only here: `(`; only here: `: ℂ )`
+```
+
+`tests/test_audit.py` builds fake projects that each hide one trick and checks that
+the audit flags it: a `False` hypothesis, `¬ True →`, RH assumed to prove RH, a
+hypothesis defined in the project, an extra `axiom`, `skipKernelTC` in source, in
+`leanOptions` and as a `-D` argument, `sorry` behind a macro, `native_decide`, a goal
+closed with `MVarId.assign`, a project `riemannZeta`, notation over the statement's
+name, the critical line moved to 1/3, no RH theorem at all, a `lakefile.lean`, a
+module named like a Mathlib file, a manifest that disagrees with the pin and an
+unofficial toolchain. A clean project is the control and must produce nothing at
+`medium` or above.
 
 ## Tests
 
