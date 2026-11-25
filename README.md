@@ -345,6 +345,15 @@ than every ε. The `GRH` strip is open, which keeps out the pole of the principa
 character and the extra zeros on `re s = 0` that an imprimitive character picks up
 from its Euler factors.
 
+Two of the equivalences are proved, so the kernel checks them on every build.
+`Equivalences.lean` has `halfPlane_iff_rh : HalfPlane ↔ RiemannHypothesis` and
+`rh_of_grh : GRH → RiemannHypothesis`. The first goes through Mathlib's functional
+equation: a zero with `re s < 1/2` gives a zero at `1 - s` unless one of the factors
+`(2π)^(s-1)`, `Γ(1-s)` or `cos(π(1-s)/2)` vanishes, and the cosine only vanishes at
+`s = -2k`, which is a trivial zero, `s = 0` (where `ζ = -1/2`) or right of the line.
+The second specializes GRH to the trivial character mod 1, whose `LFunction` is
+`riemannZeta`, and uses non-vanishing on `re s ≥ 1` to land in the strip.
+
 `audit` uses the library. A root theorem that states a form, word for word or by
 name, gets `reference: ZetaForms.Robin`, `exact: true` and an `info` finding saying
 which form it is and what it implies. One that uses a form's key constants
