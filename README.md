@@ -319,6 +319,7 @@ the development). `ZetaForms` holds one `def ... : Prop` per form:
 | --- | --- | --- |
 | `HalfPlane` | `riemannZeta s ≠ 0` for `1/2 < re s` | functional equation |
 | `GRH`, `GRHPrimitive` | zeros of `χ.LFunction` in `0 < re s < 1` are on `re s = 1/2` | standard |
+| `GRHHalfPlane` | `χ.LFunction s ≠ 0` for `1/2 < re s`, away from the pole of `χ = 1` | standard |
 | `Robin` | `σ(n) < e^γ n log log n` for `n > 5040` | Robin 1984 |
 | `Lagarias` | `σ(n) ≤ H_n + exp(H_n) log H_n` for `n ≥ 1` | Lagarias 2002 |
 | `Mertens` | `\|Σ_{n≤x} μ(n)\| ≤ C x^(1/2+ε)` | Littlewood 1912 |
@@ -360,7 +361,15 @@ which form it is and what it implies. One that uses a form's key constants
 (`sigma` and `eulerMascheroniConstant` for Robin, `iteratedDeriv` reached through
 the project's own definitions for Li) is compared against it line by line, and
 every difference is a `medium` finding. Moving Robin's 5040 to 2520 gives
-``robin vs ZetaForms.Robin: premise: `2520` here, `5040` in reference``.
+``robin vs ZetaForms.Robin: premise: `2520` here, `5040` in reference``. When
+several forms share the key constants (the three GRH forms all use `LFunction`), the
+closest one by token similarity wins.
+
+The comparison ignores what can't change the proposition: `{N : ℕ}` against
+`(N : ℕ)`, and `χ.LFunction s` against `DirichletCharacter.LFunction χ s` when `χ` is
+bound with that type. A premise that appears on both sides in a different position
+is an `info` finding (`statement-reordered`), since `A → B → C` and `B → A → C` are
+the same statement.
 
 ## Numerical checks
 
