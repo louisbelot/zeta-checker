@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from zeta_checker import hatches, imports, lake, statements
+from zeta_checker import forms, hatches, imports, lake, statements
 from zeta_checker.reference import REFERENCES
 
 SCHEMA = 1
@@ -62,11 +62,15 @@ def theorems(root: Path, lk: lake.Lake, modules: list[str]):
         else:
             t.scope = d.file
         ref = REFERENCES.get(stmt) if target is None else None
+        form, exact = forms.lookup(stmt, expr, reach(found, defs))
         if ref is not None:
             t.reference, t.exact = ref.name, True
             ref_items = statements.shape(ref.statement)
             ref_names = statements.names(ref.statement, statements.bound_names(ref_items))
             wanted.update(n for n in ref_names if not n.startswith("."))
+        elif form is not None and (exact or "riemannZeta" not in found):
+            t.reference, t.exact = form.name, exact
+            t.rows = [] if exact else statements.compare(expr, form.statement)
         elif "riemannZeta" in found:
             ref = REFERENCES["RiemannHypothesis"]
             t.reference = ref.name
@@ -76,6 +80,19 @@ def theorems(root: Path, lk: lake.Lake, modules: list[str]):
             t.rows = [(k, x, "", "only here") for k, x in items[:-1]]
         out.append(t)
     return parsed, out, wanted
+
+
+def reach(found: list[str], defs: dict) -> list[str]:
+    seen, todo = set(found), list(found)
+    while todo:
+        d = defs.get(todo.pop())
+        if d is None:
+            continue
+        for n in statements.names(d.body, statements.bound_names(statements.shape(d.body))):
+            if n not in seen:
+                seen.add(n)
+                todo.append(n)
+    return sorted(seen)
 
 
 def last(name: str) -> str:
@@ -216,6 +233,10 @@ def run(root: Path, pairs: Pairs, modules: list[str] | None = None) -> dict:
     for t in thms:
         project = {last(n): f"{rel}:{line}" for rel, line, _, n in declared if sees(t.scope, rel)}
         findings += hypotheses(t, props, project)
+        if t.reference in forms.BY_NAME and t.exact:
+            f = forms.BY_NAME[t.reference]
+            detail = f"{t.decl} states {f.name}, {f.relation} ({f.source})"
+            findings.append(Finding("info", "equivalent-form", t.file, t.line, detail))
         for kind, _, _, diff in (r for r in t.rows if r[3] != "same"):
             detail = f"{t.decl} vs {t.reference}: {kind}: {diff or 'differs'}"
             findings.append(Finding("medium", "statement-differs", t.file, t.line, detail))
