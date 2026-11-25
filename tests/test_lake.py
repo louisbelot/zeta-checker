@@ -89,3 +89,8 @@ def test_options_from_lean_options_and_arguments(fixtures, tmp_path):
 
 def test_roots_skip_glob_libs(fixtures):
     assert lake.roots(lake.load(fixtures / "project")) == ["Statements", "Main"]
+
+
+def test_roots_default_to_the_lib_name(tmp_path):
+    (tmp_path / "lakefile.toml").write_text('name = "x"\n\n[[lean_lib]]\nname = "Main"\n')
+    assert lake.roots(lake.load(tmp_path)) == ["Main"]

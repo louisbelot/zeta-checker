@@ -153,7 +153,7 @@ def roots(lake: Lake) -> list[str]:
         r
         for lib in lake.config.get("lean_lib", [])
         if "globs" not in lib
-        for r in lib.get("roots", [])
+        for r in lib.get("roots", [lib["name"]])
     ]
 
 
