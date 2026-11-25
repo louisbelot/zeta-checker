@@ -85,3 +85,43 @@ def li_coefficients(n: int, r: float = 0.8, m: int = 512, dps: int = 30) -> list
 
 def voros(n: int) -> float:
     return n / 2 * (math.log(n / (2 * math.pi)) + EULER - 1)
+
+
+def vasyunin(h: int, k: int):
+    return mpmath.fsum(
+        mpmath.frac(mpmath.mpf(a * h) / k) * mpmath.cot(mpmath.pi * a / k) for a in range(1, k)
+    )
+
+
+def gram(h: int, k: int):
+    d = math.gcd(h, k)
+    h, k = h // d, k // d
+    c = (mpmath.log(2 * mpmath.pi) - mpmath.euler) / 2 * (mpmath.mpf(1) / h + mpmath.mpf(1) / k)
+    c += mpmath.mpf(k - h) / (2 * h * k) * mpmath.log(mpmath.mpf(h) / k)
+    c -= mpmath.pi / (2 * h * k) * (vasyunin(h, k) + vasyunin(k, h))
+    return c / d
+
+
+def chi_dot(k: int):
+    return (1 - mpmath.euler + mpmath.log(k)) / k
+
+
+def baez_duarte(n: int, dps: int = 40) -> list[float]:
+    with mpmath.workdps(dps):
+        L, y, out = [], [], []
+        dist = mpmath.mpf(1)
+        for i in range(n):
+            row = []
+            for j in range(i):
+                dot = mpmath.fsum(row[t] * L[j][t] for t in range(j))
+                row.append((gram(i + 1, j + 1) - dot) / L[j][j])
+            diag = gram(i + 1, i + 1) - mpmath.fsum(a * a for a in row)
+            if diag <= 0:
+                raise ValueError(f"Gram matrix not positive definite at N = {i + 1}")
+            row.append(mpmath.sqrt(diag))
+            L.append(row)
+            dot = mpmath.fsum(row[t] * y[t] for t in range(i))
+            y.append((chi_dot(i + 1) - dot) / row[i])
+            dist -= y[i] ** 2
+            out.append(float(dist))
+    return out

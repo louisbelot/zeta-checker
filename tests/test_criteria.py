@@ -1,3 +1,5 @@
+import math
+
 import mpmath
 import pytest
 
@@ -72,3 +74,35 @@ def test_li_does_not_depend_on_the_contour():
 def test_li_rejects_bad_contours(r, m):
     with pytest.raises(ValueError):
         criteria.li_coefficients(10, r=r, m=m)
+
+
+def integral(f, h, k, upto):
+    parts = [1 / (h * k)]
+    for m in range(1, upto):
+        a, b = h * (m // h), k * (m // k)
+
+        def F(u, a=a, b=b):
+            return u - (a + b) * math.log(u) - a * b / u
+
+        parts.append((F(m + 1) - F(m)) / (h * k))
+    period = h * k // math.gcd(h, k)
+    mean = sum(mpmath.quad(f, [m, m + 1]) for m in range(period)) / period
+    return math.fsum(parts) + float(mean) / upto
+
+
+@pytest.mark.parametrize("h, k", [(1, 1), (1, 2), (2, 3), (3, 5), (4, 6), (7, 4), (5, 12)])
+def test_vasyunin_gram_against_integration(h, k):
+    f = lambda u: mpmath.frac(u / h) * mpmath.frac(u / k)  # noqa: E731
+    assert float(criteria.gram(h, k)) == pytest.approx(integral(f, h, k, 20_000), abs=1e-6)
+
+
+def test_gram_diagonal_one():
+    assert float(criteria.gram(1, 1)) == pytest.approx(math.log(2 * math.pi) - criteria.EULER)
+
+
+def test_baez_duarte_first_and_decreasing():
+    d = criteria.baez_duarte(30)
+    g = criteria.EULER
+    assert d[0] == pytest.approx(1 - (1 - g) ** 2 / (math.log(2 * math.pi) - g), abs=1e-12)
+    assert all(0 < b <= a for a, b in zip(d, d[1:], strict=False))
+    assert d[-1] * math.log(30) == pytest.approx(2 + g - math.log(4 * math.pi), rel=0.1)
