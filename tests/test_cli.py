@@ -126,3 +126,15 @@ def test_manuscript_command(tmp_path, capsys):
     body = json.loads(out.read_text(encoding="utf-8"))
     assert body["edges"] == [["2.1.1.2", "2.1.1.1", 1]]
     assert body["chapters"] == [["Chapter 2", 1, 2]]
+
+
+def test_criteria_command(capsys):
+    assert main(["criteria", "--robin", "6000", "--li", "3", "--baez-duarte", "2"]) == 0
+    text = capsys.readouterr().out
+    assert "27 exceptions, largest 5040" in text
+    assert "\n1  0.023095708966" in text and "\n2  0.289964574" in text
+
+
+def test_forms_command(capsys):
+    assert main(["forms"]) == 0
+    assert "ZetaForms.Robin" in capsys.readouterr().out

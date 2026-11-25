@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections import Counter
@@ -11,8 +12,10 @@ from pathlib import Path
 from zeta_checker import (
     archive,
     audit,
+    criteria,
     declgraph,
     fetch,
+    forms,
     hatches,
     imports,
     lake,
@@ -485,6 +488,34 @@ def cmd_imports(args) -> int:
     return 0
 
 
+def cmd_forms(args) -> int:
+    rows = [(f.name, f.relation, f.source, f.file) for f in forms.FORMS]
+    print(table(rows, ["form", "relation", "source", "file"]))
+    return 0
+
+
+def cmd_criteria(args) -> int:
+    exc = criteria.robin_exceptions(args.robin)
+    largest = f", largest {exc[-1]}" if exc else ""
+    print(f"Robin, n <= {args.robin}: {len(exc)} exceptions{largest}")
+    print("  " + " ".join(map(str, exc)))
+    lag = criteria.lagarias(args.robin)
+    print(
+        f"Lagarias, n <= {args.robin}: {len(lag.violations)} violations, equality at "
+        f"{lag.equal}, tightest n = {lag.tightest} (relative slack {lag.slack:.4g})"
+    )
+    lam = criteria.li_coefficients(args.li, r=args.radius, m=args.points)
+    rows = [(n, f"{x:.12f}") for n, x in enumerate(lam, 1)]
+    print(f"\nLi coefficients (contour r = {args.radius}, {args.points} points)")
+    print(table(rows, ["n", "lambda_n"]))
+    if args.baez_duarte:
+        d = criteria.baez_duarte(args.baez_duarte)
+        rows = [(n, f"{x:.9f}", f"{x * math.log(n):.6f}") for n, x in enumerate(d, 1)]
+        print("\nBaez-Duarte distance")
+        print(table(rows, ["N", "d_N^2", "d_N^2 log N"]))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -592,6 +623,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--archive", type=Path, help="read .lean files from STEM.partNN")
     s.add_argument("--under", default="", help="archive folder that holds the project")
     s.set_defaults(run=cmd_decls)
+
+    s = sub.add_parser("forms", help="the statement library: RH and its equivalent forms")
+    s.set_defaults(run=cmd_forms)
+
+    s = sub.add_parser("criteria", help="numerical checks of Robin, Lagarias, Li and Baez-Duarte")
+    s.add_argument("--robin", type=int, default=100_000, help="check n up to this")
+    s.add_argument("--li", type=int, default=20, help="Li coefficients up to this n")
+    s.add_argument("--radius", type=float, default=0.8)
+    s.add_argument("--points", type=int, default=512)
+    s.add_argument("--baez-duarte", type=int, default=0, metavar="N", help="d_N^2 up to N")
+    s.set_defaults(run=cmd_criteria)
 
     args = p.parse_args(argv)
     return args.run(args)
