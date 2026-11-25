@@ -235,3 +235,108 @@ the workspace with the rest of the report.
 Next: Lean challenge files for the standard equivalent forms of RH (Robin, Lagarias,
 Li, Nyman-Beurling), checked in CI against Mathlib only, and the manuscript triage made
 generic for any PDF claim.
+
+## 2026-11-24
+
+A statement library of RH and its standard equivalents, written in Lean against the
+pinned Mathlib and built in CI, the audit taught to recognise them, and numerical
+checks of each criterion against published values.
+
+**The Lean side.** `challenges/` is a Lake project on Mathlib v4.33.1, the same commit
+the development pins (the manifest is Mathlib's own, with the packages marked
+inherited). `ZetaForms` has one `def ... : Prop` per form: `HalfPlane` (no zeros with
+`1/2 < re s`), `GRH`, `GRHPrimitive` and `GRHHalfPlane`, `Robin`, `Lagarias`, `Mertens` (Littlewood's
+`M(x) = O(x^(1/2+ε))`), `Li` and `BaezDuarte`. Every Mathlib name was looked up in a
+shallow clone of the pinned tag before writing, and the first CI run built all of it.
+The build is 2.5 minutes, nearly all of it the cache download.
+
+Writing them down meant dealing with Mathlib's junk values. `completedRiemannZeta 1`
+is a number, so the textbook `ξ(s) = s(s-1)/2 · Λ(s)` is `0` at `s = 1` instead of
+`1/2`, is not differentiable there, and `deriv` at 1 returns 0. A Li criterion on top of
+it would have λ_1 = 0 for free. `riemannXi` is defined from the entire
+`completedRiemannZeta₀` as `(s(s-1)Λ₀(s) + 1)/2`, using
+`Λ = Λ₀ - 1/s - 1/(1-s)`, which Mathlib states for every s. `Sanity.lean` proves
+`riemannXi 1 = 1/2` and that `riemannXi` equals the textbook ξ off 0 and 1. The
+Báez-Duarte distance is a lower Lebesgue integral, because the Bochner integral of a
+non-integrable function is 0 and `0 < ε` would make the statement trivial. The GRH strip
+is open, which keeps out the pole of the trivial character and the zeros on `re s = 0`
+that an imprimitive character gets from its Euler factors.
+
+`Challenges/` has one comparator challenge per form and `comparator/` the configs. The
+workflow checks that `ZetaForms` builds with no `sorry` and each challenge with exactly
+one.
+
+**Proofs.** `Equivalences.lean` proves `HalfPlane ↔ RiemannHypothesis` and
+`GRH → RiemannHypothesis`. There is no Lean on this machine, so the lemma names were
+grepped from the pinned Mathlib clone and the proofs were checked only in CI; both
+built on the first run, and the second run only removed a dead `first` branch and a
+deprecated `push_neg` that the linters pointed at. The interesting step is the left
+half of the strip. A zero with `re s < 1/2` gives a zero at `1 - s` through
+`ζ(s) = 2 (2π)^(s-1) Γ(1-s) cos(π(1-s)/2) ζ(1-s)` unless a factor vanishes. The power
+and Γ never do here, and `cos(π(1-s)/2) = 0` forces `s = -2k`: for k ≥ 1 that is a
+trivial zero, which RH excludes, k = 0 is `s = 0` where `ζ = -1/2`, and k < 0 is right
+of the line. GRH → RH specializes to the trivial character mod 1, whose `LFunction` is
+`riemannZeta` by `LFunction_modOne_eq`, and uses non-vanishing on `re s ≥ 1` to land in
+the strip.
+
+**audit.** A root theorem is matched against the library before the old riemannZeta
+fallback: by name (`theorem x : ZetaForms.Robin`), by exact tokens, or by key constants
+(`sigma` and `eulerMascheroniConstant` for Robin, `sigma` and `harmonic` for Lagarias,
+`LFunction` plus `IsPrimitive` for primitive GRH). Key constants are collected through
+the project's own definitions, so a Li statement written as `0 ≤ lam n` with `lam`
+defined via `iteratedDeriv` still matches. An exact match is an `info` finding naming
+the form and the paper; anything else is compared line by line like an RH restatement.
+Moving Robin's threshold from 5040 to 2520 gives
+``premise: `2520` here, `5040` in reference``. Running the audit on `challenges/` itself
+is now a test: ten theorems (RH and the nine forms), each matched exactly, ten `sorry` findings and nothing
+else at medium or above.
+
+A bug found on the way: `lake.roots` skipped a `lean_lib` with no `roots` key, but Lake
+defaults the roots to the library's name. The development lists its roots explicitly,
+so its audit was unaffected.
+
+**criteria.** Robin's exceptions up to 10^5 are exactly OEIS A067698 (27 terms, the
+last 5040). Lagarias holds up to 10^5 with equality only at n = 1; the closest call is
+n = 12 at 1.1% slack.
+
+The Li coefficients come from the Keiper-Li series `log ξ(1/(1-z)) = log ξ(0) +
+Σ λ_n z^n/n`. The map `z ↦ 1/(1-z)` sends the unit disk onto `re s > 1/2`, so under RH
+the series converges on the whole disk, with the zeros on its boundary. Sampling
+`log ξ` on `|z| = 0.8` at 512 points, unwrapping the phase and taking a DFT gives the
+coefficients; the aliasing error is about `0.8^512`, and the cancellation costs
+`0.8^-n` relative to 30-digit arithmetic. If the unwrapped phase does not close the
+loop, there is a zero inside the circle and the function raises. Against Maślanka's
+table (arXiv:math/0402168) every printed digit agrees for n = 1 to 15 and at n = 100
+(118.603775377). λ_1 and λ_2 also agree to 1e-14 with their closed forms,
+`1 + γ/2 - log(4π)/2` and `1 + γ - γ² + π²/8 - log 4π - 2γ_1`. A first version of the
+test used 128 points and was off by 5e-13 at λ_1, which is the `0.8^128` aliasing term.
+
+For Báez-Duarte, the Gram matrix of `{1/(kt)}` in `L²(0,∞)` has Vasyunin's closed form
+with cotangent sums, and `⟨1_(0,1], {1/(kt)}⟩ = (1 - γ + log k)/k`. The tests check
+Vasyunin against direct integration (in `u = 1/t` both functions are linear on every
+unit interval, so each piece integrates exactly, plus the periodic tail), to 1e-6.
+`d_N²` comes from a Cholesky factorization grown one row at a time, so all N up to 60
+cost one O(N³) pass, in 2 seconds at 40 digits. `d_N² log N` sits near 0.047 from N =
+7 on, just above the 0.04619 that Báez-Duarte, Balazard, Landreau and Saias give as the
+lower limit when the zeros are simple.
+
+**On the development.** The first run of the new audit on the extracted development
+reported 11 more `medium` findings than on 2026-11-23, all on the three GRH statements
+in `src/Main.lean`. Two of the causes do not change the proposition: `{N : ℕ}` against
+`(N : ℕ)`, and `χ.LFunction s` against `DirichletCharacter.LFunction χ s`. `compare`
+now drops binder brackets and rewrites `v.f` to `T.f v` when `v` is bound with head
+type `T` and the other side spells it that way. The third was the zero hypothesis placed
+after the strip bounds instead of before; a premise that only moved is now an `info`
+finding (`statement-reordered`). The rest were on
+`LFunction_ne_zero_of_half_lt_re`, compared against the strip form because it is the
+half-plane form of GRH and the library did not have one. It has `GRHHalfPlane` now, and with several GRH forms sharing `LFunction`
+the lookup now breaks ties by token similarity.
+
+Final run, 3m31s on a warm cache (17m36s cold): critical 0, high 44, medium 45, low 2,
+info 15. Against 2026-11-23 the only differences are three new `info` findings: the
+half-plane theorem states `ZetaForms.GRHHalfPlane` exactly, and the two strip theorems
+match `GRH` and `GRHPrimitive` up to the position of the zero hypothesis.
+
+Next: Robin failing at 5040 proved in Lean, a comparator run end to end on a small
+solution (the HalfPlane equivalence), and certified interval enclosures for the Li
+coefficients.
