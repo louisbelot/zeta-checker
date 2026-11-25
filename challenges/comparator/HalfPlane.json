@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.HalfPlane",
+  "solution_module": "Solution",
+  "theorem_names": ["half_plane"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}

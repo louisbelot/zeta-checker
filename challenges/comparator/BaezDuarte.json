@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.BaezDuarte",
+  "solution_module": "Solution",
+  "theorem_names": ["baez_duarte"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}

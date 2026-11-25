@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.GRHPrimitive",
+  "solution_module": "Solution",
+  "theorem_names": ["grh_primitive"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}

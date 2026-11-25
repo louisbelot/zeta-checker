@@ -1,0 +1,34 @@
+name: lean
+
+on:
+  push:
+    paths: ["challenges/**", ".github/workflows/lean.yml"]
+  pull_request:
+    paths: ["challenges/**", ".github/workflows/lean.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  forms:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: challenges
+    steps:
+      - uses: actions/checkout@v4
+      - name: elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - run: lake exe cache get
+      - name: statements build without sorry
+        run: |
+          lake build ZetaForms 2>&1 | tee forms.log
+          ! grep -qi "sorry" forms.log
+      - name: one sorry per challenge
+        run: |
+          lake build Challenges 2>&1 | tee challenges.log
+          test "$(grep -ci "uses .sorry" challenges.log)" -eq "$(ls Challenges/*.lean | wc -l)"

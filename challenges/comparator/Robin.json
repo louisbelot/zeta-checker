@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.Robin",
+  "solution_module": "Solution",
+  "theorem_names": ["robin"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}

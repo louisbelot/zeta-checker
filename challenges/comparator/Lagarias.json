@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.Lagarias",
+  "solution_module": "Solution",
+  "theorem_names": ["lagarias"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}
