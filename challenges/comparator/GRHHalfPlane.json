@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.GRHHalfPlane",
+  "solution_module": "Solution",
+  "theorem_names": ["grh_half_plane"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}

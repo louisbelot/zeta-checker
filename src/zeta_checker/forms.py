@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -46,6 +47,15 @@ FORMS = (
         ("LFunction", "IsPrimitive"),
         "∀ {N : ℕ} [NeZero N] (χ : DirichletCharacter ℂ N), χ.IsPrimitive → ∀ s : ℂ, "
         "χ.LFunction s = 0 → 0 < s.re → s.re < 1 → s.re = 1 / 2",
+    ),
+    _form(
+        "GRHHalfPlane",
+        "ZetaForms/GRH.lean",
+        "equivalent to GRH",
+        "standard",
+        ("LFunction",),
+        "∀ {N : ℕ} [NeZero N] (χ : DirichletCharacter ℂ N) (s : ℂ), "
+        "1 / 2 < s.re → (χ ≠ 1 ∨ s ≠ 1) → χ.LFunction s ≠ 0",
     ),
     _form(
         "Robin",
@@ -107,4 +117,11 @@ def lookup(stmt: str, expr: str, found: Iterable[str]) -> tuple[Form | None, boo
             return f, True
     have = {n.rsplit(".", 1)[-1] for n in found}
     hits = [f for f in FORMS if f.keys and f.keys <= have]
-    return (max(hits, key=lambda f: len(f.keys)), False) if hits else (None, False)
+    if not hits:
+        return None, False
+
+    def score(f: Form) -> tuple[int, float]:
+        ref = statements.tokens(statements.squash(f.statement))
+        return len(f.keys), difflib.SequenceMatcher(a=toks, b=ref, autojunk=False).ratio()
+
+    return max(hits, key=score), False
