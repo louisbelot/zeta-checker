@@ -5,3 +5,4 @@ import ZetaForms.Mertens
 import ZetaForms.Li
 import ZetaForms.BaezDuarte
 import ZetaForms.Sanity
+import ZetaForms.Equivalences
