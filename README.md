@@ -63,6 +63,8 @@ zeta-checker imports <lean-project>     import graph and the cone of the stateme
 zeta-checker decls <lean-project>       declaration graph and its dominator tree
 zeta-checker manuscript <txt>           numbered results, cross-references, markers, citations
 zeta-checker audit <lean-project>       every static check on a project, one JSON report
+zeta-checker forms                      the statement library of RH and its equivalents
+zeta-checker criteria                   Robin, Lagarias, Li and Báez-Duarte, numerically
 ```
 
 `inventory`, `scan`, `statements`, `imports` and `decls` also take `--archive STEM --under DIR`
@@ -302,6 +304,103 @@ name, the critical line moved to 1/3, no RH theorem at all, a `lakefile.lean`, a
 module named like a Mathlib file, a manifest that disagrees with the pin and an
 unofficial toolchain. A clean project is the control and must produce nothing at
 `medium` or above.
+
+## Equivalent forms
+
+A claimed proof doesn't have to state RH in Mathlib's words. It can prove Robin's
+inequality, or Li's criterion, and leave the equivalence to the literature. So the
+audit needs to know those forms too, and they need to be written down in Lean
+precisely enough that a mismatch shows.
+
+`challenges/` is a small Lake project pinned to Mathlib v4.33.1 (the same commit as
+the development). `ZetaForms` holds one `def ... : Prop` per form:
+
+| form | statement | source |
+| --- | --- | --- |
+| `HalfPlane` | `riemannZeta s ≠ 0` for `1/2 < re s` | functional equation |
+| `GRH`, `GRHPrimitive` | zeros of `χ.LFunction` in `0 < re s < 1` are on `re s = 1/2` | standard |
+| `Robin` | `σ(n) < e^γ n log log n` for `n > 5040` | Robin 1984 |
+| `Lagarias` | `σ(n) ≤ H_n + exp(H_n) log H_n` for `n ≥ 1` | Lagarias 2002 |
+| `Mertens` | `\|Σ_{n≤x} μ(n)\| ≤ C x^(1/2+ε)` | Littlewood 1912 |
+| `Li` | `λ_n ≥ 0` for `n ≥ 1` | Li 1997 |
+| `BaezDuarte` | `1_(0,1]` is a limit of sums `Σ c_k {1/(kt)}` in `L²(0,∞)` | Báez-Duarte 2003 |
+
+`Challenges/` has one comparator challenge per form (`theorem robin : ZetaForms.Robin
+:= sorry`) and `comparator/` the matching config, so a proof of any of them can be
+checked with [leanprover/comparator](https://github.com/leanprover/comparator) the
+same way as a proof of Mathlib's `RiemannHypothesis`. The `lean` workflow builds the
+library against the Mathlib cache on every change: `ZetaForms` must build with no
+`sorry`, and each challenge with exactly one.
+
+Junk values are where these statements go wrong. Mathlib gives every function a
+value everywhere, so `completedRiemannZeta 1` is some number and
+`s * (s - 1) / 2 * completedRiemannZeta s`, the textbook ξ, is `0` at `s = 1`
+instead of `1/2`. It is then not differentiable at 1, `deriv` there is Mathlib's
+default 0, and a Li criterion built on it gets λ_1 = 0 for free. `ZetaForms.riemannXi` is defined from
+the entire `completedRiemannZeta₀` instead, as `(s (s - 1) Λ₀(s) + 1) / 2`, and
+`Sanity.lean` proves that it is `1/2` at 1 and equals the textbook ξ away from 0 and
+1. The Báez-Duarte distance is a lower Lebesgue integral (`∫⁻` into `ℝ≥0∞`) for the
+same reason: a Bochner integral of a non-integrable function is `0`, which is less
+than every ε. The `GRH` strip is open, which keeps out the pole of the principal
+character and the extra zeros on `re s = 0` that an imprimitive character picks up
+from its Euler factors.
+
+`audit` uses the library. A root theorem that states a form, word for word or by
+name, gets `reference: ZetaForms.Robin`, `exact: true` and an `info` finding saying
+which form it is and what it implies. One that uses a form's key constants
+(`sigma` and `eulerMascheroniConstant` for Robin, `iteratedDeriv` reached through
+the project's own definitions for Li) is compared against it line by line, and
+every difference is a `medium` finding. Moving Robin's 5040 to 2520 gives
+``robin vs ZetaForms.Robin: premise: `2520` here, `5040` in reference``.
+
+## Numerical checks
+
+`criteria` checks the forms against the numbers, so a typo in a constant or an
+inequality turned around doesn't survive:
+
+```
+$ zeta-checker criteria --li 10 --baez-duarte 60
+Robin, n <= 100000: 27 exceptions, largest 5040
+  2 3 4 5 6 8 9 10 12 16 18 20 24 30 36 48 60 72 84 120 180 240 360 720 840 2520 5040
+Lagarias, n <= 100000: 0 violations, equality at [1], tightest n = 12 (relative slack 0.01136)
+
+Li coefficients (contour r = 0.8, 512 points)
+ n  lambda_n
+ 1  0.023095708966
+ 2  0.092345735228
+ 3  0.207638920554
+ ...
+10  2.279339363193
+
+Baez-Duarte distance
+ N  d_N^2        d_N^2 log N
+ 1  0.858212051  0.000000
+ 2  0.289964574  0.200988
+ 5  0.036101600  0.058103
+10  0.023771866  0.054737
+20  0.016503583  0.049440
+40  0.012715197  0.046905
+60  0.011470726  0.046965
+```
+
+The Robin exceptions are OEIS A067698 term for term. The Li coefficients come from
+the Keiper-Li expansion `log ξ(1/(1-z)) = log ξ(0) + Σ λ_n z^n / n`: sample
+`log ξ` on the circle `|z| = 0.8`, unwrap the phase, and take a discrete Fourier
+transform. The map `z ↦ 1/(1-z)` sends the unit disk to `re s > 1/2`, so under RH
+the expansion converges in the whole disk and the zeros sit on its boundary (for
+`re ρ = 1/2`, `|1 - 1/ρ| = 1`). If the unwrapped phase doesn't close up, a zero is
+inside the contour and the command raises. The values agree with Maślanka's table
+(arXiv:math/0402168) in every printed digit for n = 1 to 15 and at n = 100
+(118.603775377), and λ_1 and λ_2 agree to 1e-14 with their closed forms in γ and the
+Stieltjes constant γ_1.
+
+`d_N²` is the squared distance from `1_(0,1]` to the span of `{1/(kt)}`, `k ≤ N`.
+The Gram matrix comes from Vasyunin's closed form (cotangent sums), checked in the
+tests against direct integration, and the distances from an incremental Cholesky
+factorization at 40 digits. It drops mostly when N passes a prime. Báez-Duarte,
+Balazard, Landreau and Saias showed that `liminf d_N² log N` is at least the sum of
+`m(ρ)²/|ρ|²` over the zeros on the critical line, which is `2 + γ - log 4π = 0.04619`
+if RH holds and every zero is simple. The last column stays just above it.
 
 ## Tests
 
