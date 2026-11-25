@@ -56,3 +56,32 @@ def lagarias(n: int) -> Lagarias:
         elif rel < slack:
             tightest, slack = k, rel
     return Lagarias(n, violations, equal, tightest, slack)
+
+
+def xi(s):
+    return s * (s - 1) / 2 * mpmath.pi ** (-s / 2) * mpmath.gamma(s / 2) * mpmath.zeta(s)
+
+
+def li_coefficients(n: int, r: float = 0.8, m: int = 512, dps: int = 30) -> list[float]:
+    if not 0 < r < 1 or m <= 2 * n:
+        raise ValueError("need 0 < r < 1 and more than 2n points")
+    with mpmath.workdps(dps):
+        tau = 2 * mpmath.pi
+        g = []
+        for k in range(m):
+            z = r * mpmath.expjpi(mpmath.mpf(2 * k) / m)
+            v = mpmath.log(xi(1 / (1 - z)))
+            if g:
+                v += 1j * tau * round(float((g[-1] - v).imag / tau))
+            g.append(v)
+        if abs(float((g[0] - g[-1]).imag)) > 1:
+            raise ValueError("log xi winds around the contour: a zero inside |z| < r")
+        out = []
+        for j in range(1, n + 1):
+            a = mpmath.fsum(v * mpmath.expjpi(-mpmath.mpf(2 * k * j) / m) for k, v in enumerate(g))
+            out.append(float((j * a / (m * mpmath.mpf(r) ** j)).real))
+    return out
+
+
+def voros(n: int) -> float:
+    return n / 2 * (math.log(n / (2 * math.pi)) + EULER - 1)
