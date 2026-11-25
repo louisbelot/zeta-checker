@@ -126,3 +126,18 @@ def test_context_commands():
     )
     got = [(line, kind) for line, kind, _ in statements.context(src)]
     assert got == [(3, "open"), (4, "instance"), (6, "notation"), (7, "set_option")]
+
+
+def test_compare_ignores_binder_brackets_and_dot_notation():
+    a = "∀ {N : ℕ} (χ : DirichletCharacter ℂ N) (s : ℂ), χ.LFunction s = 0 → s.re = 1 / 2"
+    b = (
+        "∀ (N : ℕ) (χ : DirichletCharacter ℂ N) (s : ℂ), "
+        "DirichletCharacter.LFunction χ s = 0 → s.re = 1 / 2"
+    )
+    assert {r[3] for r in statements.compare(a, b)} == {"same"}
+
+
+def test_compare_pairs_moved_premises():
+    a = "∀ s : ℂ, 0 < s.re → riemannZeta s = 0 → s.re = 1 / 2"
+    b = "∀ s : ℂ, riemannZeta s = 0 → 0 < s.re → s.re = 1 / 2"
+    assert sorted(r[3] for r in statements.compare(a, b)) == ["moved", "same", "same", "same"]

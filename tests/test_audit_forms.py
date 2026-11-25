@@ -64,3 +64,15 @@ def test_li_through_project_definitions(tmp_path):
     t, found = fake(tmp_path, main)
     assert (t["reference"], t["exact"]) == ("ZetaForms.Li", False)
     assert any("`lam` here, `liCoeff` in reference" in f["detail"] for f in found)
+
+
+def test_reordered_grh_is_info(tmp_path):
+    stmt = (
+        "∀ (N : ℕ) [NeZero N] (χ : DirichletCharacter ℂ N) (s : ℂ), "
+        "0 < s.re → s.re < 1 → DirichletCharacter.LFunction χ s = 0 → s.re = 1 / 2"
+    )
+    t, found = fake(tmp_path, f"theorem grh : {stmt} := by\n  simp\n")
+    assert (t["reference"], t["exact"]) == ("ZetaForms.GRH", False)
+    codes = {(f["severity"], f["code"]) for f in found}
+    assert ("info", "statement-reordered") in codes
+    assert ("medium", "statement-differs") not in codes

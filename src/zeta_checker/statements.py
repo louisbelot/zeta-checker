@@ -272,8 +272,40 @@ def token_diff(ours: str, theirs: str) -> str:
     return "; ".join(ops)
 
 
+def _brackets(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [
+        (k, t[1:-1].strip()) if k == "binder" and t[:1] in "{⦃" and t[-1:] in "}⦄" else (k, t)
+        for k, t in items
+    ]
+
+
+def _heads(items: list[tuple[str, str]]) -> dict[str, str]:
+    out = {}
+    for k, t in items:
+        if k == "binder" and ":" in t:
+            names, typ = t.strip("()[]{}⦃⦄ ").split(":", 1)
+            words = typ.split()
+            for v in names.split():
+                out[v] = words[0] if words else ""
+    return out
+
+
+def _undot(items: list[tuple[str, str]], heads: dict[str, str], other: str):
+    def sub(m: re.Match) -> str:
+        v, _, f = m.group().partition(".")
+        full = f"{heads.get(v)}.{f} {v}"
+        return full if f and heads.get(v) and full in other else m.group()
+
+    return [(k, re.sub(IDENT, sub, t)) for k, t in items]
+
+
 def compare(ours: str, theirs: str) -> list[tuple[str, str, str, str]]:
-    a, b = shape(ours), shape(theirs)
+    a, b = _brackets(shape(ours)), _brackets(shape(theirs))
+    heads = _heads(a) | _heads(b)
+    a, b = (
+        _undot(a, heads, " ".join(t for _, t in b)),
+        _undot(b, heads, " ".join(t for _, t in a)),
+    )
     keys = lambda items: [(k, tuple(tokens(t))) for k, t in items]  # noqa: E731
     rows = []
     matcher = difflib.SequenceMatcher(a=keys(a), b=keys(b), autojunk=False)
@@ -291,7 +323,17 @@ def compare(ours: str, theirs: str) -> list[tuple[str, str, str, str]]:
                 (ka, ta), (kb, tb) = left[n], right[n]
                 kind = ka if ka == kb else f"{ka} here, {kb} in reference"
                 rows.append((kind, ta, tb, token_diff(ta, tb)))
-    return rows
+    here: dict[tuple[str, ...], list[int]] = {}
+    for i, r in enumerate(rows):
+        if r[3] == "only here":
+            here.setdefault(tuple(tokens(r[1])), []).append(i)
+    for i, r in enumerate(rows):
+        spot = here.get(tuple(tokens(r[2])))
+        if r[3] == "only in reference" and spot:
+            j = spot.pop(0)
+            rows[j] = (rows[j][0], rows[j][1], r[2], "moved")
+            rows[i] = None
+    return [r for r in rows if r is not None]
 
 
 def names(expr: str, bound: set[str] = frozenset()) -> list[str]:

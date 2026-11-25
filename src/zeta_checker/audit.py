@@ -69,8 +69,9 @@ def theorems(root: Path, lk: lake.Lake, modules: list[str]):
             ref_names = statements.names(ref.statement, statements.bound_names(ref_items))
             wanted.update(n for n in ref_names if not n.startswith("."))
         elif form is not None and (exact or "riemannZeta" not in found):
-            t.reference, t.exact = form.name, exact
+            t.reference = form.name
             t.rows = [] if exact else statements.compare(expr, form.statement)
+            t.exact = all(r[3] == "same" for r in t.rows)
         elif "riemannZeta" in found:
             ref = REFERENCES["RiemannHypothesis"]
             t.reference = ref.name
@@ -237,7 +238,11 @@ def run(root: Path, pairs: Pairs, modules: list[str] | None = None) -> dict:
             f = forms.BY_NAME[t.reference]
             detail = f"{t.decl} states {f.name}, {f.relation} ({f.source})"
             findings.append(Finding("info", "equivalent-form", t.file, t.line, detail))
-        for kind, _, _, diff in (r for r in t.rows if r[3] != "same"):
+        for kind, text, _, diff in (r for r in t.rows if r[3] != "same"):
+            if diff == "moved":
+                detail = f"{t.decl} vs {t.reference}: {kind} in another position: {text}"
+                findings.append(Finding("info", "statement-reordered", t.file, t.line, detail))
+                continue
             detail = f"{t.decl} vs {t.reference}: {kind}: {diff or 'differs'}"
             findings.append(Finding("medium", "statement-differs", t.file, t.line, detail))
     if not any(t.reference for t in thms):
