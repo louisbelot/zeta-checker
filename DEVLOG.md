@@ -340,3 +340,84 @@ match `GRH` and `GRHPrimitive` up to the position of the zero hypothesis.
 Next: Robin failing at 5040 proved in Lean, a comparator run end to end on a small
 solution (the HalfPlane equivalence), and certified interval enclosures for the Li
 coefficients.
+
+## 2026-11-26
+
+Three checks of RH criteria got stronger: the Li coefficients are now computed three
+independent ways, one of them certified; the Báez-Duarte distances go to N = 2000;
+and the lean workflow proves that Robin's threshold 5040 is sharp.
+
+**Li from the zeros (`li.from_zeros`).** A conjugate pair of zeros on the line adds
+`4 sin²(n arctan(1/2γ))` to `λ_n`. Summing the first K zeros misses a lot (200 zeros give
+91% of `λ_10`), so the tail past the height T is the integral of the term against the
+smooth count `M(t) = (t/2π) log(t/2πe) + 7/8`, plus `f(T)(M(T) - K)` for the mismatch
+at T. Against the contour value the error at n = 1 is 1.4e-6 with 25 zeros, 3.0e-7 with
+50, -1.7e-9 with 100, 1.2e-8 with 150 and 1.5e-9 with 200, and scales like n². It is not
+monotone in K: what is left is the integral of S(t) against the term, which depends on
+where T falls. A rigorous bracket comes from integrating by parts and replacing N(t) by
+Trudgian's 2014 bound, `|N(t) - M(t)| ≤ 0.112 log t + 0.278 log log t + 2.510 + 0.2/t`
+for t ≥ e. That needs the term decreasing past T, so `from_zeros` refuses
+`2n arctan(1/2T) > π`. The checks: every contour value for n ≤ 20 lies in the bracket
+with 100 zeros, and the Trudgian bound contains the true counts at heights 20, 100,
+1000 and 10,000 (1, 29, 649 and 10,142).
+
+**Archimedean split.** `ξ(s) = π^(-s/2) Γ(1 + s/2) (s - 1) ζ(s)` and the Keiper-Li
+coefficients add over the factors. Expanding `log Γ(3/2 + u/2)` with
+`ψ^(k-1)(3/2) = (-1)^k (k-1)! ((2^k - 1) ζ(k) - 2^k)` and using `λ_n = Σ_k k C(n,k) c_k`
+for `log ξ = Σ c_k (s-1)^k` gives
+`1 - (n/2)(γ + log π + 2 log 2) + Σ_{k=2}^n (-1)^k C(n,k)(1 - 2^-k) ζ(k)`. The
+alternating sum loses about n/3 digits, so it runs at 30 + n/3. It matches the contour
+on the Gamma factor alone to 1e-12 for n ≤ 20, and the finite part at n = 1 is exactly γ.
+`keiper` now takes the log of any factor, which is what made that test possible.
+
+**Certified enclosures (`enclose.py`).** The contour again, in `mpmath.iv`, with ζ by
+Euler-Maclaurin (20 terms, 12 corrections, Rubinstein's remainder bound) and Γ by
+Stirling shifted to `w + 20` with the `sec^(2m)(arg/2)` bound. The first attempt used a
+shift of 10, and the Stirling remainder (1.6e-21) dominated the width of ξ; at 20 it is
+below 1e-27. The two things the float version trusts are bounded:
+
+- Aliasing needs an a priori bound on all `λ_k`. Expanding `1 - (1 - 1/ρ)^k` to second
+  order and summing over the zeros (`Σ 1/ρ` in symmetric order is `λ_1`) gives
+  `|λ_k| ≤ k λ_1 + k² e^(k/14) S` with `S ≥ Σ_{γ>0} 1/γ²`, using only that there are
+  no zeros below height 14. S comes from `2∫_14^∞ N(t)/t³ dt` with Trudgian's bound and
+  `log log t ≤ log t`, all in closed form: 0.0418 against a true 0.0231. The aliasing
+  sum is then two geometric series and needs `r e^(1/14) < 1`, so `r < 0.931`.
+- The branch of `log ξ`: the same bound gives a bound on `|F'|` on the circle, so on how
+  far the log moves between samples (0.30 for r = 0.8, M = 512). Each sample is rotated
+  by the previous phase before the principal log, and the code checks that half the
+  previous width plus the step stays below π/2.
+
+Results: λ_1 to λ_30 enclosed with widths 1.7e-27 to 3.3e-23 at 30 digits in 2 s, all
+positive; λ_100 at 40 digits and 1024 points in an interval of width 3.9e-16 around
+118.6037753768. Each enclosure contains the 40-digit closed form of λ_1, Maślanka's
+printed λ_10 and λ_100, and the float contour values. Endpoints print rounded outward;
+the first version used `nstr`, which rounds to nearest and could have printed a lower
+end slightly above the true one.
+
+**Báez-Duarte to N = 2000.** `V(h, k)` depends only on `h mod k`, so a k×k product per k
+gives every entry, and one float64 Cholesky factorization gives `d_N²` for all N. N =
+1000 in 2.3 s, 2000 in 17 s. Agreement with the 40-digit version is 1.5e-15 at N = 30,
+and the Gram matrix condition number is 3.5e5 at N = 300 and 1.5e7 at N = 2000. The
+obvious next step would be a reciprocity law making each cotangent sum O(log k). It is
+not needed at this size, and Bettin and Conrey's reciprocity for these sums
+involves the period function of an Eisenstein series, not an elementary formula, and the
+vectorized direct sums are fast enough. `d_N² log N` first goes below `2 + γ - log 4π`
+at N = 41, is below it for 1,531 of the N up to 2000, bottoms out at 0.0442 at N = 695
+and is 0.0465 at N = 2000. Chart in docs/baez_duarte.png.
+
+**Robin is sharp, in Lean.** `ZetaForms/RobinSharp.lean`:
+`e^γ · 5040 · log log 5040 < σ(5040)`, plus `robin_threshold_sharp`, the negation of
+Robin's statement with 5039. Margins were planned in Python: γ < 0.5812 from
+`γ < H_128 - 7 log 2` (true value of the right side 0.581117), `e^0.5812 < 1.7883` with
+10 Taylor terms (bound 1.7881830), `log 5040 < 8.53` and `log 8.53 < 2.145` from 30 and
+20 terms of the exponential series. Product 19332.96 against 19344. Lean is not installed
+here, so the proof went through CI on a scratch branch; the first run failed only on a
+cast (`exact_mod_cast` would not move `harmonic 128 < q` from ℚ to ℝ, fixed with
+`Rat.cast_lt` and `push_cast`); the second built in 2m23s. `σ(5040)` by
+`decide +kernel` on the divisor sum and `H_128` by `norm_num` were both fine.
+
+Tests: 180 pass in 24 s. Every commit was checked out on its own and passes tests and
+ruff.
+
+Next: a comparator run end to end on a small solution (the HalfPlane equivalence), the
+de Bruijn-Newman form, and alpha-equivalence in the statement compare.
