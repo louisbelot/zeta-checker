@@ -135,6 +135,15 @@ def test_criteria_command(capsys):
     assert "\n1  0.023095708966" in text and "\n2  0.289964574" in text
 
 
+def test_li_command(tmp_path, capsys):
+    out = tmp_path / "li.json"
+    assert main(["li", "--n", "3", "--zeros", "20", "--certify", "--json", str(out)]) == 0
+    assert "lambda_1..lambda_3 certified positive: True" in capsys.readouterr().out
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body[0]["certified"][0].startswith("0.02309570896612103")
+    assert body[2]["zeros"]["zeros"] == 20
+
+
 def test_forms_command(capsys):
     assert main(["forms"]) == 0
     assert "ZetaForms.Robin" in capsys.readouterr().out

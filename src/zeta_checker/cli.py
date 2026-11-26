@@ -9,11 +9,14 @@ from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
+import mpmath
+
 from zeta_checker import (
     archive,
     audit,
     criteria,
     declgraph,
+    enclose,
     fetch,
     forms,
     hatches,
@@ -23,6 +26,7 @@ from zeta_checker import (
     manuscript,
     pdftext,
     statements,
+    zeros,
 )
 from zeta_checker.reference import REFERENCES
 
@@ -517,6 +521,36 @@ def cmd_criteria(args) -> int:
     return 0
 
 
+def cmd_li(args) -> int:
+    lam = li.li_coefficients(args.n, r=args.radius, m=args.points)
+    gammas = zeros.ordinates(args.zeros + 1)
+    sums = [li.from_zeros(n, gammas) for n in range(1, args.n + 1)]
+    boxes = []
+    if args.certify:
+        boxes = enclose.li_enclosures(args.n, str(args.radius), args.points, args.dps)
+    rows, body = [], []
+    for n, x in enumerate(lam, 1):
+        z = sums[n - 1]
+        arch = li.archimedean(n)
+        row = [n, f"{x:.12f}", f"{z.estimate - x:+.1e}", f"{z.partial:.6f}"]
+        row += [f"{z.partial + z.upper:.6f}", f"{arch:.9f}", f"{x - arch:.9f}"]
+        entry = {"n": n, "contour": x, "zeros": asdict(z), "archimedean": arch}
+        if boxes:
+            e = boxes[n - 1]
+            row += [e.decimals(15)[0], mpmath.nstr(e.width, 2)]
+            entry["certified"] = list(e.decimals(args.dps))
+        rows.append(row)
+        body.append(entry)
+    head = ["n", "contour", "zeros-contour", "sum lo", "sum hi", "archimedean", "finite"]
+    print(f"Li coefficients: {args.zeros} zeros, height {sums[0].height:.2f}")
+    print(table(rows, head + (["certified lo", "width"] if boxes else [])))
+    if boxes:
+        positive = all(e.lo > 0 for e in boxes)
+        print(f"\nlambda_1..lambda_{args.n} certified positive: {positive}")
+    dump(args.json, body)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -635,6 +669,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--points", type=int, default=512)
     s.add_argument("--baez-duarte", type=int, default=0, metavar="N", help="d_N^2 up to N")
     s.set_defaults(run=cmd_criteria)
+
+    s = sub.add_parser("li", help="Li coefficients from the contour, the zeros and intervals")
+    s.add_argument("--n", type=int, default=20)
+    s.add_argument("--zeros", type=int, default=100, help="zeros summed before the tail")
+    s.add_argument("--radius", type=float, default=0.8)
+    s.add_argument("--points", type=int, default=512)
+    s.add_argument("--certify", action="store_true", help="interval enclosures")
+    s.add_argument("--dps", type=int, default=30)
+    s.add_argument("--json", type=Path)
+    s.set_defaults(run=cmd_li)
 
     args = p.parse_args(argv)
     return args.run(args)
