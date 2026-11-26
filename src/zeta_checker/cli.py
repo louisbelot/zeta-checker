@@ -19,6 +19,7 @@ from zeta_checker import (
     hatches,
     imports,
     lake,
+    li,
     manuscript,
     pdftext,
     statements,
@@ -504,7 +505,7 @@ def cmd_criteria(args) -> int:
         f"Lagarias, n <= {args.robin}: {len(lag.violations)} violations, equality at "
         f"{lag.equal}, tightest n = {lag.tightest} (relative slack {lag.slack:.4g})"
     )
-    lam = criteria.li_coefficients(args.li, r=args.radius, m=args.points)
+    lam = li.li_coefficients(args.li, r=args.radius, m=args.points)
     rows = [(n, f"{x:.12f}") for n, x in enumerate(lam, 1)]
     print(f"\nLi coefficients (contour r = {args.radius}, {args.points} points)")
     print(table(rows, ["n", "lambda_n"]))
