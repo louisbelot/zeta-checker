@@ -4,8 +4,10 @@ import math
 from dataclasses import dataclass
 
 import mpmath
+import numpy as np
 
 EULER = float(mpmath.euler)
+LANDREAU_RICHARD = 2 + EULER - math.log(4 * math.pi)
 
 
 def sigma_table(n: int) -> list[int]:
@@ -96,3 +98,32 @@ def baez_duarte(n: int, dps: int = 40) -> list[float]:
             dist -= y[i] ** 2
             out.append(float(dist))
     return out
+
+
+def vasyunin_table(n: int) -> np.ndarray:
+    V = np.zeros((n + 1, n + 1))
+    h = np.arange(1, n + 1)
+    for k in range(2, n + 1):
+        a = np.arange(1, k)
+        w = (np.outer(np.arange(k), a) % k / k) @ (1 / np.tan(np.pi * a / k))
+        V[1:, k] = w[h % k]
+    return V
+
+
+def gram_matrix(n: int) -> np.ndarray:
+    V = vasyunin_table(n)
+    h = np.arange(1, n + 1)[:, None]
+    k = h.T
+    d = np.gcd(h, k)
+    h, k = h // d, k // d
+    c = (math.log(2 * math.pi) - EULER) / 2 * (1 / h + 1 / k)
+    c += (k - h) / (2 * h * k) * np.log(h / k)
+    c -= np.pi / (2 * h * k) * (V[h, k] + V[k, h])
+    return c / d
+
+
+def baez_duarte_float(n: int) -> np.ndarray:
+    k = np.arange(1, n + 1)
+    L = np.linalg.cholesky(gram_matrix(n))
+    y = np.linalg.solve(L, (1 - EULER + np.log(k)) / k)
+    return 1 - np.cumsum(y**2)

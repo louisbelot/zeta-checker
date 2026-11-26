@@ -514,9 +514,11 @@ def cmd_criteria(args) -> int:
     print(f"\nLi coefficients (contour r = {args.radius}, {args.points} points)")
     print(table(rows, ["n", "lambda_n"]))
     if args.baez_duarte:
-        d = criteria.baez_duarte(args.baez_duarte)
-        rows = [(n, f"{x:.9f}", f"{x * math.log(n):.6f}") for n, x in enumerate(d, 1)]
-        print("\nBaez-Duarte distance")
+        N = args.baez_duarte
+        d = criteria.baez_duarte_float(N)
+        shown = sorted({*range(1, min(N, 10) + 1), *range(max(N // 10, 1), N + 1, max(N // 10, 1))})
+        rows = [(n, f"{d[n - 1]:.9f}", f"{d[n - 1] * math.log(n):.6f}") for n in shown]
+        print(f"\nBaez-Duarte distance (Landreau-Richard constant {criteria.LANDREAU_RICHARD:.6f})")
         print(table(rows, ["N", "d_N^2", "d_N^2 log N"]))
     return 0
 

@@ -13,6 +13,7 @@ authors = [{ name = "Louis Belot" }]
 keywords = ["lean4", "mathlib", "riemann-hypothesis", "formal-verification", "proof-audit"]
 dependencies = [
     "mpmath>=1.3",
+    "numpy>=1.24",
     "pypdf>=4",
     "tomli>=2; python_version < '3.11'",
 ]

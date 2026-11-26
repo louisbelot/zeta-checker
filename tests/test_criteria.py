@@ -53,3 +53,20 @@ def test_baez_duarte_first_and_decreasing():
     assert d[0] == pytest.approx(1 - (1 - g) ** 2 / (math.log(2 * math.pi) - g), abs=1e-12)
     assert all(0 < b <= a for a, b in zip(d, d[1:], strict=False))
     assert d[-1] * math.log(30) == pytest.approx(2 + g - math.log(4 * math.pi), rel=0.1)
+
+
+def test_vasyunin_table_matches_direct_sums():
+    V = criteria.vasyunin_table(40)
+    for h, k in [(1, 2), (3, 7), (12, 5), (40, 39), (17, 40)]:
+        assert V[h, k] == pytest.approx(float(criteria.vasyunin(h, k)), abs=1e-11)
+
+
+def test_float_baez_duarte_matches_exact():
+    fast = criteria.baez_duarte_float(30)
+    assert fast == pytest.approx(criteria.baez_duarte(30), abs=1e-12)
+
+
+def test_baez_duarte_1000_near_landreau_richard():
+    d = criteria.baez_duarte_float(1000)
+    assert all(0 < b <= a for a, b in zip(d, d[1:], strict=False))
+    assert d[-1] * math.log(1000) == pytest.approx(criteria.LANDREAU_RICHARD, rel=0.05)
