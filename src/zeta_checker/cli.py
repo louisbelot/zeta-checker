@@ -520,6 +520,11 @@ def cmd_criteria(args) -> int:
         rows = [(n, f"{d[n - 1]:.9f}", f"{d[n - 1] * math.log(n):.6f}") for n in shown]
         print(f"\nBaez-Duarte distance (Landreau-Richard constant {criteria.LANDREAU_RICHARD:.6f})")
         print(table(rows, ["N", "d_N^2", "d_N^2 log N"]))
+        if args.chart:
+            from zeta_checker import charts
+
+            charts.baez_duarte(d, args.chart)
+            print(f"wrote {args.chart}")
     return 0
 
 
@@ -670,6 +675,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--radius", type=float, default=0.8)
     s.add_argument("--points", type=int, default=512)
     s.add_argument("--baez-duarte", type=int, default=0, metavar="N", help="d_N^2 up to N")
+    s.add_argument("--chart", type=Path, help="plot d_N^2 log N to this image")
     s.set_defaults(run=cmd_criteria)
 
     s = sub.add_parser("li", help="Li coefficients from the contour, the zeros and intervals")
