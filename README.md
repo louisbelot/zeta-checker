@@ -39,7 +39,8 @@ python -m venv .venv
 ```
 
 Python 3.10 or newer. `pdftotext` (poppler) is used for PDFs when it is on the
-PATH, with pypdf as the fallback.
+PATH, with pypdf as the fallback. `--chart` needs matplotlib (the `plot` extra, also
+part of `dev`).
 
 All commands take `-w/--workspace`, a folder outside the repo for downloads and
 outputs (or set `ZETA_CHECKER_WORKSPACE`). Run anything that reads the downloads
@@ -65,6 +66,7 @@ zeta-checker manuscript <txt>           numbered results, cross-references, mark
 zeta-checker audit <lean-project>       every static check on a project, one JSON report
 zeta-checker forms                      the statement library of RH and its equivalents
 zeta-checker criteria                   Robin, Lagarias, Li and Báez-Duarte, numerically
+zeta-checker li                         Li coefficients from the contour, the zeros and intervals
 ```
 
 `inventory`, `scan`, `statements`, `imports` and `decls` also take `--archive STEM --under DIR`
@@ -333,6 +335,17 @@ same way as a proof of Mathlib's `RiemannHypothesis`. The `lean` workflow builds
 library against the Mathlib cache on every change: `ZetaForms` must build with no
 `sorry`, and each challenge with exactly one.
 
+`RobinSharp.lean` proves that Robin's threshold can't be lowered: the inequality fails
+at 5040, `e^γ · 5040 · log log 5040 < σ(5040) = 19344`. `σ(5040)` is `decide +kernel` on
+the divisor sum. `γ < 0.5812` comes from Mathlib's `γ < H_n - log n` at n = 128, with
+`log 128 = 7 log 2` bounded by `log_two_gt_d9` and `H_128` summed by `norm_num`. Then
+`e^0.5812 < 1.7883` from the Taylor bound `Real.exp_bound'` with 10 terms, and
+`log log 5040 < 2.145` from two partial-sum lower bounds on `exp`
+(`5040 < exp 8.53` and `8.53 < exp 2.145`). That makes the product at most 19332.96,
+0.06% under 19344. The margins were chosen in Python first; the proof itself is checked
+only in the `lean` workflow. `robin_threshold_sharp` packages it as the negation of
+Robin's statement with 5039 in place of 5040.
+
 Junk values are where these statements go wrong. Mathlib gives every function a
 value everywhere, so `completedRiemannZeta 1` is some number and
 `s * (s - 1) / 2 * completedRiemannZeta s`, the textbook ξ, is `0` at `s = 1`
@@ -377,7 +390,7 @@ the same statement.
 inequality turned around doesn't survive:
 
 ```
-$ zeta-checker criteria --li 10 --baez-duarte 60
+$ zeta-checker criteria --li 10 --baez-duarte 2000 --chart docs/baez_duarte.png
 Robin, n <= 100000: 27 exceptions, largest 5040
   2 3 4 5 6 8 9 10 12 16 18 20 24 30 36 48 60 72 84 120 180 240 360 720 840 2520 5040
 Lagarias, n <= 100000: 0 violations, equality at [1], tightest n = 12 (relative slack 0.01136)
@@ -390,15 +403,18 @@ Li coefficients (contour r = 0.8, 512 points)
  ...
 10  2.279339363193
 
-Baez-Duarte distance
- N  d_N^2        d_N^2 log N
- 1  0.858212051  0.000000
- 2  0.289964574  0.200988
- 5  0.036101600  0.058103
-10  0.023771866  0.054737
-20  0.016503583  0.049440
-40  0.012715197  0.046905
-60  0.011470726  0.046965
+Baez-Duarte distance (Landreau-Richard constant 0.046191)
+   N  d_N^2        d_N^2 log N
+   1  0.858212051  0.000000
+   2  0.289964574  0.200988
+   5  0.036101600  0.058103
+  10  0.023771866  0.054737
+ 200  0.008920725  0.047265
+ 600  0.007085287  0.045324
+1000  0.006555964  0.045287
+1400  0.006310027  0.045711
+2000  0.006114100  0.046473
+wrote docs/baez_duarte.png
 ```
 
 The Robin exceptions are OEIS A067698 term for term. The Li coefficients come from
@@ -413,12 +429,103 @@ inside the contour and the command raises. The values agree with Maślanka's tab
 Stieltjes constant γ_1.
 
 `d_N²` is the squared distance from `1_(0,1]` to the span of `{1/(kt)}`, `k ≤ N`.
-The Gram matrix comes from Vasyunin's closed form (cotangent sums), checked in the
-tests against direct integration, and the distances from an incremental Cholesky
-factorization at 40 digits. It drops mostly when N passes a prime. Báez-Duarte,
-Balazard, Landreau and Saias showed that `liminf d_N² log N` is at least the sum of
-`m(ρ)²/|ρ|²` over the zeros on the critical line, which is `2 + γ - log 4π = 0.04619`
-if RH holds and every zero is simple. The last column stays just above it.
+The Gram matrix comes from Vasyunin's closed form, which writes `⟨{1/(ht)}, {1/(kt)}⟩`
+with `log 2π - γ`, `log(h/k)` and the cotangent sums `V(h, k) = Σ_a {ah/k} cot(πa/k)`.
+`V(h, k)` only depends on `h mod k`, so one matrix product per `k` gives a whole column,
+`O(N³)` in all, and one float64 Cholesky factorization gives `d_N²` for every `N` at
+once (the leading blocks of a Cholesky factor are the factors of the leading blocks).
+N = 2000 takes 17 s. The 40-digit mpmath version stays in the tests as the reference:
+the two agree to 1e-12 up to N = 30, and Vasyunin's formula is itself checked against
+direct integration. The Gram matrix has condition number 1.5e7 at N = 2000, so float64
+has room to spare.
+
+![d_N² log N up to N = 2000](docs/baez_duarte.png)
+
+Báez-Duarte, Balazard, Landreau and Saias showed that `liminf d_N² log N` is at least
+the sum of `m(ρ)²/|ρ|²` over the zeros on the critical line, which is
+`2 + γ - log 4π = 0.04619` if RH holds and every zero is simple, and Landreau and
+Richard conjectured that `d_N² log N` tends to that value. The product first drops
+below the line at N = 41 and is below it for 1,531 of the N up to 2000, with a low of
+0.0442 at N = 695, then climbs back to 0.0465 by N = 2000. A liminf says nothing about
+finite N, so this is what the numbers look like, not evidence either way.
+
+## Li coefficients three ways
+
+`zeta-checker li` computes each `λ_n` from the contour above, from the zeros, and as a
+certified interval (rows cut):
+
+```
+$ zeta-checker li --n 30 --zeros 200 --certify
+Li coefficients: 200 zeros, height 397.15
+ n  contour          zeros-contour  sum lo     sum hi     archimedean   finite       certified lo        width
+ 1  0.023095708966   +1.5e-09       0.021035   0.023120   -0.554119956  0.577215665  0.023095708966121   1.7e-27
+ 2  0.092345735228   +6.0e-09       0.084102   0.092441   -0.874539362  0.966885097  0.0923457352280467  4.3e-27
+10  2.279339363193   +1.5e-07       2.073258   2.281720   0.955535679   1.323803684  2.27933936319316    1.3e-25
+20  8.769276872093   +6.0e-07       7.944988   8.778799   8.098624059   0.670652813  8.76927687209322    2.3e-24
+30  18.553792290813  +1.4e-06       16.699284  18.575213  17.856652330  0.697139961  18.5537922908134    3.3e-23
+
+lambda_1..lambda_30 certified positive: True
+```
+
+**From the zeros.** `λ_n = Σ_ρ [1 - (1 - 1/ρ)^n]`. For `ρ = 1/2 + iγ`, `1 - 1/ρ` has
+modulus 1 and argument `2 arctan(1/2γ)`, so a conjugate pair contributes
+`4 sin²(n arctan(1/2γ))`, which is never negative. The terms fall off like `n²/γ²` and
+the raw sum converges slowly: 200 zeros give 91% of `λ_10`. Call the height `T` (midway
+between the last zero used and the next). The tail is the Stieltjes integral of the term
+against `N(t)`; with the smooth count `M(t) = (t/2π) log(t/2πe) + 7/8` it becomes an
+integral against `log(t/2π)/2π` plus a boundary correction `f(T)(M(T) - N(T))`. The
+corrected sum is within `1.5e-9 n²` of the contour value at 200 zeros:
+
+| zeros | error at n = 1 | n = 10 |
+|---:|---:|---:|
+| 25 | 1.4e-6 | 1.4e-4 |
+| 50 | 3.0e-7 | 3.0e-5 |
+| 100 | -1.7e-9 | -1.7e-7 |
+| 150 | 1.2e-8 | 1.2e-6 |
+| 200 | 1.5e-9 | 1.5e-7 |
+
+The error is not monotone in the height because what is left is the integral of the
+fluctuating part `S(t)` against the term, and that depends on where `T` falls. For a
+bound instead of an estimate, integrate by parts,
+`Σ_{γ>T} f(γ) = ∫_T^∞ (N(t) - N(T)) (-f'(t)) dt`, and replace `N(t)` by Trudgian's
+explicit bound `M(t) + 0.112 log t + 0.278 log log t + 2.510 + 0.2/t` (valid for
+`t ≥ e`). This needs `f` decreasing past `T`, that is `2n arctan(1/2T) ≤ π`, and the code
+refuses larger `n`. Every contour value from n = 1 to 30 lands inside
+`[sum lo, sum hi]`.
+
+**Archimedean and finite parts.** `ξ(s) = π^(-s/2) Γ(1 + s/2) · (s - 1) ζ(s)`, and the
+Keiper-Li coefficients add over the factors. The Gamma factor has the closed form
+`1 - (n/2)(γ + log π + 2 log 2) + Σ_{k=2}^n (-1)^k C(n,k) (1 - 2^-k) ζ(k)`, which the
+tests check against the contour run on `log Γ(1 + s/2) - (s/2) log π` alone. The finite
+part, `λ_n` minus that, is exactly `γ` at n = 1 and stays between 0.5 and 1.5 for
+`n ≤ 30` while the archimedean part grows like `(n/2) log n`.
+
+**Certified intervals.** `enclose.py` redoes the contour in interval arithmetic
+(`mpmath.iv`). ζ comes from Euler-Maclaurin with 20 terms and 12 Bernoulli corrections
+plus the remainder bound `|T_(m+1)| |s + 2m + 1| / (σ + 2m + 1)`; Γ from Stirling at
+`w + 20`, remainder bounded by `sec^(2m)(arg w / 2)` times the first omitted term, then
+divided by the rising product. Two things a floating-point contour takes on trust are
+bounded instead.
+
+The first is aliasing. The DFT on `M` points returns `λ_n` plus
+`n Σ_l λ_(n+lM) r^(lM) / (n+lM)`. Expanding `1 - (1 - 1/ρ)^k` to second order and
+summing over the zeros gives `|λ_k| ≤ k λ_1 + k² e^(k/14) Σ_{γ>0} 1/γ²` with no
+hypothesis beyond the fact that no zero has `|γ| < 14`. `Σ 1/γ²` is bounded by
+integrating Trudgian's bound against `2/t³`, which gives 0.0418 (the true value is
+0.0231). With `r = 0.8` and `M = 512` the aliasing term is under 1.1e-30 for every
+`n ≤ 30`.
+
+The second is the branch of the log. The same bound gives `|F'(z)| ≤ Σ k |λ_k| r^(k-1)`
+on the circle, hence how far `log ξ` can move between two samples. Each sample is
+rotated by the previous phase before the principal log is taken, and the code checks
+that half the previous width plus that step is below `π/2`, so the branch cannot slip.
+
+Widths come out between 1.7e-27 and 3.3e-23 at 30 digits, every enclosure contains
+Maślanka's printed value, and all lower ends are positive. So `λ_1, ..., λ_30 > 0` is
+proved, given Trudgian's bound, the absence of zeros below height 14, and correct
+interval routines in mpmath. At 40 digits and 1024 points the same code encloses `λ_100`
+in an interval of width 4e-16 around 118.6037753768. Decimal output rounds the endpoints
+outward.
 
 ## Tests
 
