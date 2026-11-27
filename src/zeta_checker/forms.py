@@ -94,6 +94,14 @@ FORMS = (
         "∀ n : ℕ, 1 ≤ n → 0 ≤ liCoeff n",
     ),
     _form(
+        "DeBruijnNewman",
+        "ZetaForms/DeBruijnNewman.lean",
+        "equivalent to RH",
+        "de Bruijn 1950, Newman 1976",
+        ("deBruijnH",),
+        "∀ t : ℝ, 0 < t → ∀ z : ℂ, deBruijnH t z = 0 → z.im = 0",
+    ),
+    _form(
         "BaezDuarte",
         "ZetaForms/BaezDuarte.lean",
         "equivalent to RH",

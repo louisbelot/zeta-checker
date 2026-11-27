@@ -4,6 +4,7 @@ import ZetaForms.Divisors
 import ZetaForms.Mertens
 import ZetaForms.Li
 import ZetaForms.BaezDuarte
+import ZetaForms.DeBruijnNewman
 import ZetaForms.Sanity
 import ZetaForms.Equivalences
 import ZetaForms.RobinSharp

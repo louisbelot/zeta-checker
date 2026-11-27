@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenges.DeBruijnNewman",
+  "solution_module": "Solution",
+  "theorem_names": ["de_bruijn_newman"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": false
+}
