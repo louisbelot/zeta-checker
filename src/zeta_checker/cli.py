@@ -17,6 +17,7 @@ from zeta_checker import (
     audit,
     colossal,
     criteria,
+    debruijn,
     declgraph,
     enclose,
     fetch,
@@ -553,6 +554,31 @@ def cmd_colossal(args) -> int:
     return 0
 
 
+def cmd_debruijn(args) -> int:
+    xs = [2 * g for g in zeros.ordinates(args.sum)]
+    rows = []
+    for k in range(args.zeros):
+        v, w = debruijn.velocity(0, xs[k]), debruijn.velocity_from_zeros(k, xs)
+        rows.append((k + 1, mpmath.nstr(xs[k], 12), mpmath.nstr(v, 10), mpmath.nstr(w, 10)))
+    print(f"zeros of H_0 and their velocity at t = 0 ({args.sum} zeros in the sum)")
+    print(table(rows, ["k", "x_k(0)", "H_zz/H_z", "2 sum 1/(x_k - x_j)"]))
+    ts = [args.t_min + (args.t_max - args.t_min) * i / (args.steps - 1) for i in range(args.steps)]
+    back = [t for t in ts if t < 0][::-1]
+    ahead = [t for t in ts if t >= 0]
+    paths = debruijn.track(back, args.zeros)[::-1] + debruijn.track(ahead, args.zeros)
+    rows = [
+        (f"{t:+.3f}", *(mpmath.nstr(x, 9) for x in xs_t)) for t, xs_t in zip(ts, paths, strict=True)
+    ]
+    print(f"\nreal zeros of H_t, t from {args.t_min} to {args.t_max}")
+    print(table(rows, ["t"] + [f"x_{k + 1}" for k in range(args.zeros)]))
+    if args.chart:
+        from zeta_checker import charts
+
+        charts.debruijn(ts, paths, args.chart)
+        print(f"wrote {args.chart}")
+    return 0
+
+
 def cmd_li(args) -> int:
     lam = li.li_coefficients(args.n, r=args.radius, m=args.points)
     gammas = zeros.ordinates(args.zeros + 1)
@@ -707,6 +733,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--limit", type=float, default=1e8, help="largest prime factor")
     s.add_argument("--chart", type=Path, help="plot the scaled margin to this image")
     s.set_defaults(run=cmd_colossal)
+
+    s = sub.add_parser("debruijn", help="zeros of the de Bruijn-Newman family H_t")
+    s.add_argument("--zeros", type=int, default=6, help="track this many zeros")
+    s.add_argument("--sum", type=int, default=100, help="zeros in the velocity sum")
+    s.add_argument("--t-min", type=float, default=-0.5)
+    s.add_argument("--t-max", type=float, default=0.5)
+    s.add_argument("--steps", type=int, default=21)
+    s.add_argument("--chart", type=Path, help="plot the zero paths to this image")
+    s.set_defaults(run=cmd_debruijn)
 
     s = sub.add_parser("li", help="Li coefficients from the contour, the zeros and intervals")
     s.add_argument("--n", type=int, default=20)

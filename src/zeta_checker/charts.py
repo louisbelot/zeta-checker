@@ -63,3 +63,38 @@ def colossal(scan, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
+
+
+def debruijn(ts, paths, path: Path) -> None:
+    x = np.array([[float(v) for v in row] for row in paths])
+    x -= x[list(ts).index(0)]
+    fig, ax = plt.subplots(figsize=(8, 4.2), dpi=150)
+    ax.axvspan(0, 0.2, color="#f2d7d5", lw=0)
+    ax.annotate(
+        r"$0 \leq \Lambda \leq 0.2$",
+        (0.1, 0.97),
+        xycoords=("data", "axes fraction"),
+        ha="center",
+        va="top",
+        color="#c0392b",
+    )
+    gap = 0.045 * (x.max() - x.min())
+    order = np.argsort(x[-1])
+    spots = x[-1][order].copy()
+    for i in range(1, len(spots)):
+        spots[i] = max(spots[i], spots[i - 1] + gap)
+    spots -= max(0.0, spots[-1] - x.max())
+    for k, y in zip(order, spots, strict=True):
+        ax.plot(ts, x[:, k], lw=1.2, color="#1f5fa8")
+        ax.annotate(
+            rf"$x_{k + 1}$", (ts[-1], y), xytext=(4, 0), textcoords="offset points", va="center"
+        )
+    ax.set_xlim(ts[0], ts[-1])
+    ax.set_xlabel("t")
+    ax.set_ylabel(r"$x_k(t) - x_k(0)$")
+    ax.set_title(r"Real zeros of $H_t$, displacement from $x_k(0) = 2\gamma_k$")
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)

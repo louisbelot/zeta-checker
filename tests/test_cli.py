@@ -155,3 +155,11 @@ def test_colossal_command(tmp_path, capsys):
     text = capsys.readouterr().out
     assert "lowest (e^g loglog N - sigma(N)/N) sqrt(log N) = 0.235680 at log N = 10.9231" in text
     assert png.stat().st_size > 10_000
+
+
+def test_debruijn_command(capsys):
+    args = ["debruijn", "--zeros", "1", "--sum", "20", "--steps", "3"]
+    assert main(args + ["--t-min", "-0.05", "--t-max", "0.05"]) == 0
+    text = capsys.readouterr().out
+    assert "1  28.2694502835  -0.5796305775" in text
+    assert "+0.050  28.2404743" in text and "-0.050  28.2984373" in text
