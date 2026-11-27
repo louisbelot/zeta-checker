@@ -421,3 +421,90 @@ ruff.
 
 Next: a comparator run end to end on a small solution (the HalfPlane equivalence), the
 de Bruijn-Newman form, and alpha-equivalence in the statement compare.
+
+## 2026-11-27
+
+Three things today: the statement compare now works up to alpha-equivalence, Robin's
+inequality is checked on every colossally abundant number up to 10^(10^10.02), and
+the de Bruijn-Newman family is in the library as a Lean form with numerics behind it.
+
+**Alpha-equivalence.** `statements.compare` used to treat `∀ (z : ℂ), ...` and
+`∀ (s : ℂ), ...` as different statements, and a named hypothesis `(hz : P)` as a
+binder where Mathlib writes `(_ : P)`. Both now normalize before the line-up:
+
+- binder groups split, binder predicates expanded (`∀ ε > 0, P` to `∀ ε, ε > 0 → P`),
+  and a binder whose name nothing later mentions becomes a premise. That last one is
+  exact: `∀ (h : P), Q` with `h` unused is the same Pi type as `P → Q`.
+- top-level binders are paired in order by their types (themselves renamed so far),
+  so dependent types like `DirichletCharacter ℂ N` pair up after `N` does. Each pair
+  gets a fresh `§v0`-style name. Unpaired ones get side-specific names, so they can
+  never accidentally agree.
+- `rename` walks the tokens with a stack of scopes. A binder keyword (`∃`, `∀`, `fun`,
+  `λ`, `∑`, `⋃`, ...) opens a scope at the current bracket depth; names are collected
+  until `:`, a binder predicate or the body separator, with nested parens in a type
+  not counted as names; the scope closes at the first bracket that closes below it.
+  `{x | p}` and `{x : T // p}` get the same treatment. Inner binders get positional
+  names, so `∃ n, ...` and `∃ m, ...` agree.
+
+Status is decided on the canonical text; the displayed diff renames our side to the
+reference's names, so a renamed statement with one wrong constant reports only that
+constant. `forms.lookup` now uses the same test for an exact match. A first version
+of the binder walker reset "in a type" on every open paren, which made `Set (ℂ)` bind
+`ℂ`; the test with a parenthesized type caught it.
+
+Tests: hand cases for capture (`∀ x, x = y` vs `∀ y, y = y` differ), shadowing, scope
+ending at a bracket, and a randomized test that renames every bound variable of all
+11 forms 20 times with random names and checks they still match. No two forms match
+each other.
+
+**Robin on CA numbers.** The exponent of p in the CA number for ε steps from k - 1 to
+k at `ε(p, k) = log(1 + (p - 1)/(p^(k+1) - p)) / log p`, and that step multiplies
+σ(N)/N by exactly `p^ε(p,k)`. So the whole sequence is a merge of sorted events, and
+`log N` and `log σ(N)/N` are cumulative sums. The k = 1 events come straight off a
+segmented numpy sieve in order (ε(p, 1) decreases in p); the k ≥ 2 events only exist
+for p up to about 2√x and are merged per segment.
+
+Two float concerns, both measured rather than assumed. The sums: a naive
+`n · U · total` bound was 1.7e-6 at 10^9 primes, bigger than the margin (2e-7). The
+real error is much smaller because each segment's local cumsum is over a small total
+and the carry adds one rounding per segment, so the bound is accumulated that way:
+1.6e-9 at the end. The order: if two critical values were within float error the
+merge could swap them and skip a CA number. The smallest relative gap between
+consecutive values over the whole run is 8.2e-14, against about 2e-16 error.
+
+Run to largest prime 2.4e10: 1,050,206,459 CA numbers, largest 10^10,423,115,272,
+134 s. Robin holds at every one with margin minus error bound at least 2.07e-7. Checks:
+first 16 terms against OEIS A004490, first 10 by brute-force argmax of
+σ(m)/m^(1+ε) over m ≤ 300,000, the CA numbers ≤ 5040 are all Robin exceptions and
+55440 isn't, Robin's unconditional bound `e^γ log log n + 0.6483/log log n` holds on
+the first terms, and the 337 CA numbers past 5040 with primes up to 2000 recomputed exactly with mpmath at 40 digits.
+
+The scaled margin `D(N) = (e^γ log log N - σ(N)/N) √(log N)` climbs from 0.236 at
+55440 to about 1.64 near log N = 1000 and then settles onto Ramanujan's
+`e^γ(2√2 - 4 - γ + log 4π) = 1.3932` (his limsup bound under RH), dipping to 1.370 at
+log N = 3.9e9. Chart in docs/robin_colossal.png. The local plan said "only CA numbers
+can be the first counterexample"; that's not quite what's known (Akbary and Friggstad
+showed the least counterexample is superabundant). What Robin proved is that a
+failure implies CA failures and that CA numbers bound everything between them, which
+is what the scan uses. README says that.
+
+**de Bruijn-Newman.** `ZetaForms/DeBruijnNewman.lean` defines Φ, `H_t` as a Bochner
+integral over `Ioi 0`, and the form "every zero of `H_t` is real for every t > 0".
+The usual "Λ ≤ 0" is avoided because `Real.sInf` is 0 on empty or unbounded sets, so
+the sInf version only means RH together with de Bruijn's and Newman's theorems. Built
+in the lean workflow on a scratch branch first (2 min, one sorry in the challenge).
+
+`debruijn.py` evaluates `H_t` and its z-derivatives by differentiating under the
+integral, at a precision that grows with x since `H_0(x) ≈ e^(-πx/8)`. `H_0(z)` matches
+`ξ(1/2 + iz/2)/8` to 1e-14 at real and complex z, the heat equation holds by finite
+differences to 1e-8, and the zeros of `H_0` are `2γ_k`. The zero velocity `H_zz/H_z`
+against `2 Σ 1/(x_k - x_j)`: the first tail estimate (just the smooth density from the
+last zero on) got worse going from 100 to 300 zeros, because it ignored where the
+step function sits at the cutoff. Adding `-f(A)(J - N̄(A))` fixed it: 300 zeros now
+agree to 4e-8. Six zeros tracked over t in [-0.5, 0.5] with Newton plus a velocity
+predictor, chart in docs/debruijn.png. They all drift left at 0.47 to 0.96 per unit t.
+
+Tests: 234 pass in 37 s.
+
+Next: comparator end to end on the HalfPlane equivalence in CI, the Bettin-Conrey-Farmer
+coefficients for Báez-Duarte, and a forms report over the development's root theorems.
