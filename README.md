@@ -67,6 +67,8 @@ zeta-checker audit <lean-project>       every static check on a project, one JSO
 zeta-checker forms                      the statement library of RH and its equivalents
 zeta-checker criteria                   Robin, Lagarias, Li and Báez-Duarte, numerically
 zeta-checker li                         Li coefficients from the contour, the zeros and intervals
+zeta-checker colossal                   Robin's inequality on every colossally abundant number
+zeta-checker debruijn                   zeros of the de Bruijn-Newman family H_t and their motion
 ```
 
 `inventory`, `scan`, `statements`, `imports` and `decls` also take `--archive STEM --under DIR`
@@ -327,6 +329,7 @@ the development). `ZetaForms` holds one `def ... : Prop` per form:
 | `Mertens` | `\|Σ_{n≤x} μ(n)\| ≤ C x^(1/2+ε)` | Littlewood 1912 |
 | `Li` | `λ_n ≥ 0` for `n ≥ 1` | Li 1997 |
 | `BaezDuarte` | `1_(0,1]` is a limit of sums `Σ c_k {1/(kt)}` in `L²(0,∞)` | Báez-Duarte 2003 |
+| `DeBruijnNewman` | every zero of `H_t` is real, for every `t > 0` | de Bruijn 1950, Newman 1976 |
 
 `Challenges/` has one comparator challenge per form (`theorem robin : ZetaForms.Robin
 := sorry`) and `comparator/` the matching config, so a proof of any of them can be
@@ -378,11 +381,40 @@ every difference is a `medium` finding. Moving Robin's 5040 to 2520 gives
 several forms share the key constants (the three GRH forms all use `LFunction`), the
 closest one by token similarity wins.
 
-The comparison ignores what can't change the proposition: `{N : ℕ}` against
-`(N : ℕ)`, and `χ.LFunction s` against `DirichletCharacter.LFunction χ s` when `χ` is
-bound with that type. A premise that appears on both sides in a different position
-is an `info` finding (`statement-reordered`), since `A → B → C` and `B → A → C` are
-the same statement.
+The comparison works up to alpha-equivalence. Before lining items up it splits
+binder groups (`(a b : ℕ)` is `(a : ℕ) (b : ℕ)`), turns a named hypothesis that nothing
+later mentions into a premise (`(hz : riemannZeta s = 0)` is `riemannZeta s = 0 →`, the
+same Pi type in the kernel), expands binder predicates (`∀ ε > 0, P` is
+`∀ ε, ε > 0 → P`) and normalizes `fun`/`λ`, `=>`/`↦` and `->`/`→`. Then it renames
+bound variables. Top-level binders on the two sides are paired in order by their
+types, so `(N : ℕ) (χ : DirichletCharacter ℂ N)` pairs with `(M : ℕ) (ψ :
+DirichletCharacter ℂ M)`, and each pair gets one fresh name that can't clash with a
+free constant. Binders inside an item (`∃`, `∀`, `fun`, `∑ i ∈ s`, `{x | p x}`) are
+renamed by position, with the scope ending at the bracket that closes around the
+binder, so in `(∃ m, m = n) ∧ m = 0` the second `m` stays free. `∀ x, x = y` against
+`∀ y, y = y` stays different. When a line does differ, the diff is shown with the
+reference's names, so a renamed statement with one wrong constant reports only the
+constant. The tests rename every bound variable of every form at random and check the
+result still matches, and check that no two forms match each other. `audit` uses the
+same test for "states this form exactly", so `∀ (m : ℕ) (hm : 5040 < m), ...` is
+recognised as Robin's statement.
+
+`∀ (b a : ℕ), b - a = 0` is the same statement as `∀ (a b : ℕ), a - b = 0`, but
+`∀ (a b : ℕ), b - a = 0` is not, and the comparison says so. A premise that appears on
+both sides in a different position is an `info` finding (`statement-reordered`),
+since `A → B → C` and `B → A → C` are equivalent but not the same term.
+
+`DeBruijnNewman` defines `Φ(u) = Σ_n (2π²n⁴e^(9u) - 3πn²e^(5u)) exp(-πn²e^(4u))` and
+`H_t(z) = ∫_0^∞ e^(tu²) Φ(u) cos(zu) du`, and states that `H_t` has only real zeros
+for every `t > 0`. `H_0(z) = ξ(1/2 + iz/2)/8`, so the zeros of `H_0` are real exactly
+when RH holds. De Bruijn showed that real zeros stay real as t grows, which gives RH ⇒
+the form. The zeros move continuously in t, so a zero of `H_0` off the axis would
+leave zeros off the axis for small `t > 0`, which gives the converse. The usual
+phrasing is "the de Bruijn-Newman constant Λ is at most 0", with Λ an infimum. The
+form avoids `sInf` on purpose: `Real.sInf` is 0 on an empty set and on a set with no
+lower bound, so `Λ ≤ 0` written that way means RH only once de Bruijn's and Newman's
+theorems are formalized as well. Rodgers and Tao proved Λ ≥ 0 (2018), so RH is
+equivalent to Λ = 0.
 
 ## Numerical checks
 
@@ -448,6 +480,86 @@ Richard conjectured that `d_N² log N` tends to that value. The product first dr
 below the line at N = 41 and is below it for 1,531 of the N up to 2000, with a low of
 0.0442 at N = 695, then climbs back to 0.0465 by N = 2000. A liminf says nothing about
 finite N, so this is what the numbers look like, not evidence either way.
+
+## Robin on colossally abundant numbers
+
+A colossally abundant (CA) number maximizes `σ(n)/n^(1+ε)` for some ε > 0 (Alaoglu and
+Erdős, 1944). Robin (1984) showed that if RH fails then Robin's inequality fails at
+infinitely many CA numbers, and that an n between two consecutive CA numbers does no
+worse than the larger of the two. So checking every CA number up to some size checks
+every n up to that size. This is how Briggs (2006) reached 10^(10^10).
+
+The CA numbers come from one sorted list. The exponent of p goes from k - 1 to k when
+ε drops below `ε(p, k) = log(1 + (p - 1)/(p^(k+1) - p)) / log p`, so walking the
+critical values in decreasing order multiplies by one prime at a time, and every
+product is the next CA number (OEIS A004490 for the first 16, and a brute-force argmax
+of `σ(m)/m^(1+ε)` over m ≤ 300,000 for the first 10). The step also changes
+`log σ(N)/N` by exactly `ε(p, k) log p`, so `log N` and `log σ(N)/N` are two cumulative
+sums. `colossal` runs a segmented sieve, merges the k = 1 events (one per prime,
+already in order) with the few k ≥ 2 events, and checks Robin at every N with numpy:
+
+```
+$ zeta-checker colossal --limit 2.4e10 --chart docs/robin_colossal.png
+colossally abundant N > 5040 with every prime factor <= 24,000,000,000
+  checked 1,050,206,459 numbers in 134.4 s, largest N = 10^10,423,115,272
+  Robin holds at every one: margin minus float error bound >= 2.067e-07
+  float error bound at the largest N: 1.64e-09
+  smallest relative gap between consecutive critical epsilons: 8.18e-14
+  lowest (e^g loglog N - sigma(N)/N) sqrt(log N) = 0.235680 at log N = 10.9231
+```
+
+Two things can go wrong in floating point, and both are measured. The sums carry an
+error bound built per segment (one rounding per carry, and `k U` times the segment's
+own sum inside it), which at the end is 1.6e-9, while the margin minus that bound
+never drops below 2.1e-7. And the order of the events depends on ε computed in float.
+The closest two consecutive critical values ever get is a relative gap of 8.2e-14,
+about 400 times the error in computing them, so no two events can have been swapped.
+
+![Robin's inequality on CA numbers](docs/robin_colossal.png)
+
+The chart is `D(N) = (e^γ log log N - σ(N)/N) √(log N)`. Under RH, Ramanujan's
+unpublished part of "Highly composite numbers" gives `limsup (σ(n)/n - e^γ log log n)
+√(log n) ≤ -e^γ(2√2 - 4 - γ + log 4π) = -1.3932`. `D` climbs from 0.236 at N = 55440
+to about 1.64 near log N = 1000, then settles onto 1.393 and oscillates around it
+(1.370 at log N = 3.9e9, 1.376 at the end). A finite range can't decide a limsup; the
+check that matters is that the margin stays positive. Morrill and Platt pushed the
+same check to 10^(10^13.099), well past this.
+
+## The de Bruijn-Newman flow
+
+`debruijn` computes `H_t` straight from the definition in mpmath: Φ to the working
+precision, the integral cut where `exp(-π e^(4u))` is below it, and split into
+pieces shorter than a period of `cos(zu)`. `H_0(x)` is about `e^(-πx/8)`, so the
+precision grows with x to absorb the cancellation. The tests check `H_0(z)` against
+`ξ(1/2 + iz/2)/8` from `mpmath.zeta` at real and complex z (agreement 1e-14), the heat
+equation `∂_t H = -∂²_z H` by finite differences, and that the first zeros of `H_0` are
+twice the ordinates of the zeta zeros.
+
+Each zero moves with velocity `H_zz/H_z` (differentiate `H_t(x(t)) = 0` and use the
+heat equation). Writing `H_t` as a product over its zeros turns that into the system
+`dx_k/dt = 2 Σ_{j≠k} 1/(x_k - x_j)` over all zeros ±x_j, which is how the zeros repel.
+The command computes both, with the sum over 100 zeros plus a tail from the smooth
+zero density and a correction for where the count sits at the cutoff:
+
+```
+$ zeta-checker debruijn --chart docs/debruijn.png
+zeros of H_0 and their velocity at t = 0 (100 zeros in the sum)
+k  x_k(0)         H_zz/H_z       2 sum 1/(x_k - x_j)
+1  28.2694502835  -0.5796305775  -0.5796305027
+2  42.0440792775  -0.754995498   -0.7549953861
+3  50.0217151603  -0.5858331605  -0.5858330267
+4  60.8497522517  -0.9554212573  -0.9554210932
+5  65.8701231755  -0.4654454579  -0.4654452794
+6  75.1723563177  -0.8386670015  -0.838666796
+```
+
+With 300 zeros the first velocity agrees to 4e-8. All six zeros drift left as t
+grows, pushed by the much denser zeros above them, and the first zero tracked with
+Newton's method moves at the predicted speed to 1e-4. Over `-0.5 ≤ t ≤ 0.5` they stay
+real and the paths are close to straight lines. The shaded band is where Λ is known
+to lie: at least 0 (Rodgers and Tao) and at most 0.2 (Platt and Trudgian, 2021).
+
+![zeros of H_t](docs/debruijn.png)
 
 ## Li coefficients three ways
 
