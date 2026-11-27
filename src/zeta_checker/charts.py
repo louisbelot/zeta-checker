@@ -36,3 +36,30 @@ def baez_duarte(d, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
+
+
+def colossal(scan, path: Path) -> None:
+    from zeta_checker.colossal import RAMANUJAN
+
+    x, y = np.array(scan.curve).T
+    fig, ax = plt.subplots(figsize=(8, 4.2), dpi=150)
+    ax.plot(x, y, lw=1.2, color="#1f5fa8")
+    ax.axhline(RAMANUJAN, color="#c0392b", lw=1, ls="--")
+    ax.annotate(
+        rf"$e^\gamma(2\sqrt{{2}} - 4 - \gamma + \log 4\pi) = {RAMANUJAN:.4f}$",
+        (x[-1], RAMANUJAN),
+        xytext=(-6, -16),
+        textcoords="offset points",
+        ha="right",
+        color="#c0392b",
+    )
+    ax.set_xscale("log")
+    ax.set_xlim(x[0], x[-1])
+    ax.set_xlabel(r"$\log N$")
+    ax.set_ylabel(r"$(e^\gamma \log\log N - \sigma(N)/N)\,\sqrt{\log N}$")
+    ax.set_title(f"Robin's inequality on {scan.count:,} colossally abundant numbers")
+    ax.grid(alpha=0.3, which="both")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)

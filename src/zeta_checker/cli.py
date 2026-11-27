@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import time
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
@@ -14,6 +15,7 @@ import mpmath
 from zeta_checker import (
     archive,
     audit,
+    colossal,
     criteria,
     declgraph,
     enclose,
@@ -528,6 +530,29 @@ def cmd_criteria(args) -> int:
     return 0
 
 
+def cmd_colossal(args) -> int:
+    t = time.perf_counter()
+    s = colossal.scan(int(args.limit))
+    secs = time.perf_counter() - t
+    print(f"colossally abundant N > 5040 with every prime factor <= {int(args.limit):,}")
+    digits = s.log_n / math.log(10)
+    print(f"  checked {s.count:,} numbers in {secs:.1f} s, largest N = 10^{digits:,.0f}")
+    print(f"  Robin holds at every one: margin minus float error bound >= {s.slack:.3e}")
+    print(f"  float error bound at the largest N: {s.error:.2e}")
+    print(f"  smallest relative gap between consecutive critical epsilons: {s.gap:.2e}")
+    D, at = s.lowest
+    print(f"  lowest (e^g loglog N - sigma(N)/N) sqrt(log N) = {D:.6f} at log N = {at:.4f}")
+    print(f"  Ramanujan's constant under RH: {colossal.RAMANUJAN:.6f}")
+    rows = [(f"{x:.4g}", f"{y:.6f}") for x, y in s.curve[:: max(len(s.curve) // 12, 1)]]
+    print(table(rows, ["log N", "D(N)"]))
+    if args.chart:
+        from zeta_checker import charts
+
+        charts.colossal(s, args.chart)
+        print(f"wrote {args.chart}")
+    return 0
+
+
 def cmd_li(args) -> int:
     lam = li.li_coefficients(args.n, r=args.radius, m=args.points)
     gammas = zeros.ordinates(args.zeros + 1)
@@ -677,6 +702,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--baez-duarte", type=int, default=0, metavar="N", help="d_N^2 up to N")
     s.add_argument("--chart", type=Path, help="plot d_N^2 log N to this image")
     s.set_defaults(run=cmd_criteria)
+
+    s = sub.add_parser("colossal", help="Robin's inequality on colossally abundant numbers")
+    s.add_argument("--limit", type=float, default=1e8, help="largest prime factor")
+    s.add_argument("--chart", type=Path, help="plot the scaled margin to this image")
+    s.set_defaults(run=cmd_colossal)
 
     s = sub.add_parser("li", help="Li coefficients from the contour, the zeros and intervals")
     s.add_argument("--n", type=int, default=20)
