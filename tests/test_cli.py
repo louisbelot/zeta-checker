@@ -147,3 +147,11 @@ def test_li_command(tmp_path, capsys):
 def test_forms_command(capsys):
     assert main(["forms"]) == 0
     assert "ZetaForms.Robin" in capsys.readouterr().out
+
+
+def test_colossal_command(tmp_path, capsys):
+    png = tmp_path / "robin.png"
+    assert main(["colossal", "--limit", "1e5", "--chart", str(png)]) == 0
+    text = capsys.readouterr().out
+    assert "lowest (e^g loglog N - sigma(N)/N) sqrt(log N) = 0.235680 at log N = 10.9231" in text
+    assert png.stat().st_size > 10_000
