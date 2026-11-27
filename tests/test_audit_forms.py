@@ -76,3 +76,13 @@ def test_reordered_grh_is_info(tmp_path):
     codes = {(f["severity"], f["code"]) for f in found}
     assert ("info", "statement-reordered") in codes
     assert ("medium", "statement-differs") not in codes
+
+
+def test_renamed_robin_with_named_hypothesis_is_exact(tmp_path):
+    stmt = (
+        "∀ (m : ℕ) (hm : 5040 < m), (ArithmeticFunction.sigma 1 m : ℝ) < "
+        "Real.exp Real.eulerMascheroniConstant * m * Real.log (Real.log m)"
+    )
+    t, found = fake(tmp_path, f"theorem robin' : {stmt} := by\n  simp\n")
+    assert (t["reference"], t["exact"]) == ("ZetaForms.Robin", True)
+    assert not [f for f in found if f["code"] == "statement-differs"]

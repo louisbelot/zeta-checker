@@ -113,7 +113,7 @@ def lookup(stmt: str, expr: str, found: Iterable[str]) -> tuple[Form | None, boo
         return BY_NAME[stmt], True
     toks = statements.tokens(statements.squash(expr))
     for f in FORMS:
-        if toks == statements.tokens(statements.squash(f.statement)):
+        if statements.alpha_equal(expr, f.statement):
             return f, True
     have = {n.rsplit(".", 1)[-1] for n in found}
     hits = [f for f in FORMS if f.keys and f.keys <= have]
