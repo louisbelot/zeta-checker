@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 from zeta_checker.leanlex import ID_REST, IDENT, Lines, mask
@@ -272,6 +272,157 @@ def token_diff(ours: str, theirs: str) -> str:
     return "; ".join(ops)
 
 
+_INNER = BINDING | {"∑", "∏", "⋃", "⋂", "⨆", "⨅", "Σ", "Π"}
+_PRED = {">", "<", "≥", "≤", "∈", "∉", "≠", "⊆", "⊂", "|", "//"}
+_BODY = {",", "=>", "↦"}
+_LEX = re.compile(rf"(?<![{ID_REST}])(?:fun|forall|exists)(?![{ID_REST}])|{IDENT}|∃!|=>|//|\d+|\S")
+_SETOF = re.compile(rf"\{{\s*({IDENT})\s*(?::[^|{{}}]*)?(?:\||//)")
+
+
+def rename(
+    text: str, top: dict[str, str], fresh: Callable[[int, str], str]
+) -> tuple[str, list[str]]:
+    out, last, depth = [], 0, 0
+    scopes: list[tuple[int, dict[str, str]]] = []
+    inner: list[str] = []
+    binding = None
+
+    def bind(name: str) -> str:
+        new = fresh(len(inner), name)
+        inner.append(name)
+        scopes[-1][1][name] = new
+        return new
+
+    def lookup(name: str) -> str | None:
+        for _, m in reversed(scopes):
+            if name in m:
+                return m[name]
+        return top.get(name)
+
+    for m in _LEX.finditer(text):
+        t, new = m.group(), None
+        if t in CLOSE:
+            depth -= 1
+            while scopes and depth < scopes[-1][0]:
+                scopes.pop()
+            if binding is not None and depth < binding[0]:
+                binding = None
+            elif binding is not None and depth == binding[0]:
+                binding[2] = False
+        elif binding is not None:
+            d0, bare, group = binding
+            if t in OPEN:
+                depth += 1
+                if depth == d0 + 1:
+                    binding[2] = bare or t == "["
+            elif depth == d0 and t in _BODY:
+                binding = None
+            elif t == ":" or t in _PRED:
+                binding[1 if depth == d0 else 2] = True
+            elif not (bare if depth == d0 else group) and re.fullmatch(IDENT, t):
+                if t not in NOT_NAMES:
+                    new = bind(t)
+        elif t in _INNER:
+            scopes.append((depth, {}))
+            binding = [depth, False, False]
+        elif t in OPEN:
+            if t == "{" and (s := _SETOF.match(text, m.start())):
+                depth += 1
+                scopes.append((depth, {}))
+                out.append(text[last : s.start(1)] + bind(s.group(1)))
+                last = s.end(1)
+                continue
+            depth += 1
+        if new is None and m.start() >= last and re.fullmatch(IDENT, t):
+            head, dot, rest = t.partition(".")
+            if (to := lookup(head)) is not None:
+                new = to + dot + rest
+        if new is not None and m.start() >= last:
+            out.append(text[last : m.start()] + new)
+            last = m.end()
+    out.append(text[last:])
+    return "".join(out), inner
+
+
+_BINDER_PRED = re.compile(rf"({IDENT})\s*(>|<|≥|≤|∈|∉|≠|⊆|⊂)\s*(.+)$")
+
+
+def _split(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out = []
+    for k, t in items:
+        vs, sep, typ = t.partition(":")
+        vs = vs.split()
+        if k == "binder" and (m := _BINDER_PRED.fullmatch(t)) and m.group(1) not in NOT_NAMES:
+            out += [(k, m.group(1)), ("premise", t)]
+        elif k == "binder" and t[:1] != "[" and len(vs) > 1 and all(map(_is_ident, vs)):
+            out += [(k, f"{v} : {typ.strip()}" if sep else v) for v in vs]
+        else:
+            out.append((k, t))
+    return out
+
+
+def _is_ident(v: str) -> bool:
+    return re.fullmatch(IDENT, v) is not None
+
+
+def _binder_name(item: tuple[str, str]) -> str | None:
+    k, t = item
+    if k != "binder" or t[:1] == "[":
+        return None
+    v = t.split(":", 1)[0].strip()
+    return v if re.fullmatch(IDENT, v) else None
+
+
+def _nondep(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out = []
+    for i, it in enumerate(items):
+        v = _binder_name(it)
+        later = " ".join(t for _, t in items[i + 1 :])
+        used = v is not None and any(w.split(".", 1)[0] == v for w in re.findall(IDENT, later))
+        if v is not None and ":" in it[1] and not used:
+            out.append(("premise", it[1].split(":", 1)[1].strip()))
+        else:
+            out.append(it)
+    return out
+
+
+def _canonical(a, b):
+    def text(item, m, fresh=lambda i, _: f"§{i}"):
+        v = _binder_name(item)
+        if v is None:
+            return rename(item[1], m, fresh)[0]
+        typ = item[1].partition(":")[2].strip()
+        return m.get(v, v) + (" : " + rename(typ, m, fresh)[0] if typ else "")
+
+    ma: dict[str, str] = {}
+    mb: dict[str, str] = {}
+    vb = [(j, _binder_name(it)) for j, it in enumerate(b) if _binder_name(it)]
+    start = 0
+    for it in a:
+        v = _binder_name(it)
+        if v is None:
+            continue
+        mine = text(("premise", it[1].partition(":")[2]), ma)
+        for n, (j, w) in enumerate(vb[start:], start):
+            if text(("premise", b[j][1].partition(":")[2]), mb) == mine:
+                ma[v] = mb[w] = f"§v{len(ma)}"
+                start = n + 1
+                break
+    for v in filter(None, map(_binder_name, a)):
+        ma.setdefault(v, f"§a.{v}")
+    for _, w in vb:
+        mb.setdefault(w, f"§b.{w}")
+    back = {c: w for w, c in mb.items()}
+    to_theirs = {v: back.get(c, v) for v, c in ma.items()}
+    return [text(it, ma) for it in a], [text(it, mb) for it in b], to_theirs
+
+
+def _display(ours: str, theirs: str, to_theirs: dict[str, str]) -> str:
+    _, names_b = rename(theirs, {}, lambda i, n: n)
+    out, _ = rename(ours, to_theirs, lambda i, n: names_b[i] if i < len(names_b) else n)
+    return out
+
+
 def _brackets(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return [
         (k, t[1:-1].strip()) if k == "binder" and t[:1] in "{⦃" and t[-1:] in "}⦄" else (k, t)
@@ -299,41 +450,58 @@ def _undot(items: list[tuple[str, str]], heads: dict[str, str], other: str):
     return [(k, re.sub(IDENT, sub, t)) for k, t in items]
 
 
+_SAME = {"λ": "fun", "forall": "∀", "exists": "∃"}
+
+
+def _key(text: str) -> tuple[str, ...]:
+    return tuple(_SAME.get(t, t) for t in tokens(text.replace("->", "→").replace("↦", "=>")))
+
+
 def compare(ours: str, theirs: str) -> list[tuple[str, str, str, str]]:
-    a, b = _brackets(shape(ours)), _brackets(shape(theirs))
+    a, b = _split(_brackets(shape(ours))), _split(_brackets(shape(theirs)))
     heads = _heads(a) | _heads(b)
     a, b = (
-        _undot(a, heads, " ".join(t for _, t in b)),
-        _undot(b, heads, " ".join(t for _, t in a)),
+        _nondep(_undot(a, heads, " ".join(t for _, t in b))),
+        _nondep(_undot(b, heads, " ".join(t for _, t in a))),
     )
-    keys = lambda items: [(k, tuple(tokens(t))) for k, t in items]  # noqa: E731
-    rows = []
-    matcher = difflib.SequenceMatcher(a=keys(a), b=keys(b), autojunk=False)
-    for op, i1, i2, j1, j2 in matcher.get_opcodes():
+    ca, cb, to_theirs = _canonical(a, b)
+    ka = [(k, _key(c)) for (k, _), c in zip(a, ca, strict=True)]
+    kb = [(k, _key(c)) for (k, _), c in zip(b, cb, strict=True)]
+    rows: list = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=ka, b=kb, autojunk=False).get_opcodes():
         if op == "equal":
-            rows += [(k, t, t, "same") for k, t in a[i1:i2]]
+            rows += [
+                (a[i][0], a[i][1], b[j][1], "same", ka[i])
+                for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
+            ]
             continue
-        left, right = a[i1:i2], b[j1:j2]
-        for n in range(max(len(left), len(right))):
-            if n >= len(right):
-                rows.append((left[n][0], left[n][1], "", "only here"))
-            elif n >= len(left):
-                rows.append((right[n][0], "", right[n][1], "only in reference"))
+        for n in range(max(i2 - i1, j2 - j1)):
+            i, j = i1 + n, j1 + n
+            if j >= j2:
+                rows.append((a[i][0], a[i][1], "", "only here", ka[i]))
+            elif i >= i2:
+                rows.append((b[j][0], "", b[j][1], "only in reference", kb[j]))
             else:
-                (ka, ta), (kb, tb) = left[n], right[n]
-                kind = ka if ka == kb else f"{ka} here, {kb} in reference"
-                rows.append((kind, ta, tb, token_diff(ta, tb)))
-    here: dict[tuple[str, ...], list[int]] = {}
-    for i, r in enumerate(rows):
+                (x, ta), (y, tb) = a[i], b[j]
+                kind = x if x == y else f"{x} here, {y} in reference"
+                diff = token_diff(_display(ta, tb, to_theirs), tb)
+                rows.append((kind, ta, tb, diff or ("binding differs" if x == y else ""), ka[i]))
+    here: dict = {}
+    for n, r in enumerate(rows):
         if r[3] == "only here":
-            here.setdefault(tuple(tokens(r[1])), []).append(i)
-    for i, r in enumerate(rows):
-        spot = here.get(tuple(tokens(r[2])))
-        if r[3] == "only in reference" and spot:
+            here.setdefault(r[4][1], []).append(n)
+    for n, r in enumerate(rows):
+        if r is None or r[3] != "only in reference":
+            continue
+        if spot := here.get(r[4][1]):
             j = spot.pop(0)
-            rows[j] = (rows[j][0], rows[j][1], r[2], "moved")
-            rows[i] = None
-    return [r for r in rows if r is not None]
+            rows[j] = (rows[j][0], rows[j][1], r[2], "moved", None)
+            rows[n] = None
+    return [r[:4] for r in rows if r is not None]
+
+
+def alpha_equal(ours: str, theirs: str) -> bool:
+    return all(r[3] == "same" for r in compare(ours, theirs))
 
 
 def names(expr: str, bound: set[str] = frozenset()) -> list[str]:
